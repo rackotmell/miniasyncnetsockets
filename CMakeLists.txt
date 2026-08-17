@@ -73,8 +73,7 @@ if (MINIASYNCNETSOCKETS_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-if (MINIASYNCNETSOCKETS_BUILD_EXAMPLES AND EXISTS
-    "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+if (MINIASYNCNETSOCKETS_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
