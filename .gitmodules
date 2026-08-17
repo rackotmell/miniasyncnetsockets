@@ -1,0 +1,6 @@
+[submodule "external/miniruntime"]
+	path = external/miniruntime
+	url = https://github.com/rackotmell/miniruntime.git
+[submodule "external/mininetsockets"]
+	path = external/mininetsockets
+	url = https://github.com/rackotmell/mininetsockets.git
