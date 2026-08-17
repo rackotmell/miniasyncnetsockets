@@ -11,12 +11,10 @@ namespace miniasyncnetsockets
 {
 
 // Delegates to ServerState constructor.
-TcpServer::TcpServer(mininetsockets::Endpoint endpoint,
-                     ServerCallbacks callbacks,
-                     ServerOptions options)
-    : m_state(std::make_unique<detail::ServerState>(std::move(endpoint),
-                                                    std::move(callbacks),
-                                                    options))
+TcpServer::TcpServer(
+    mininetsockets::Endpoint endpoint, ServerCallbacks callbacks, ServerOptions options)
+    : m_state(std::make_unique<detail::ServerState>(
+          std::move(endpoint), std::move(callbacks), options))
 {
 }
 
@@ -37,10 +35,7 @@ void TcpServer::stop() noexcept
     if (m_state) m_state->stop();
 }
 
-bool TcpServer::isRunning() const noexcept
-{
-    return m_state && m_state->isRunning();
-}
+bool TcpServer::isRunning() const noexcept { return m_state && m_state->isRunning(); }
 
 mininetsockets::Endpoint TcpServer::localEndpoint() const
 {

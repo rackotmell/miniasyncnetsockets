@@ -3,13 +3,11 @@
 
 #pragma once
 
-#include <condition_variable>
-#include <cstddef>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
-#include <unordered_map>
 
 #include "miniasyncnetsockets/tcpserver.hpp"
 #include "miniruntime/event/eventloop.h"
@@ -35,7 +33,7 @@ public:
     // Binds the listener and starts the event-loop thread.
     void start();
 
-    // Stops the event loop and joins the thread.
+    // Requests event-loop shutdown. The destructor joins the thread.
     void stop() noexcept;
 
     [[nodiscard]] bool isRunning() const noexcept;
@@ -52,6 +50,9 @@ private:
     // Event-loop thread entry point.
     void run();
 
+    // Starts thread safely
+    void startThread();
+
     // Accepts pending connections from the listener.
     void acceptConnections();
 
@@ -65,18 +66,18 @@ private:
     void cleanupAfterRun() noexcept;
 
     mutable std::mutex m_mutex;
-    std::condition_variable m_stateChanged;
+    std::thread m_thread;
     miniruntime::event::EventLoop m_loop;
+
+    Lifecycle m_lifecycle{Lifecycle::Constructed};
+
     mininetsockets::Endpoint m_endpoint;
     ServerCallbacks m_callbacks;
     ServerOptions m_options;
+
     std::optional<mininetsockets::TcpListener> m_listener;
     std::optional<miniruntime::event::EventHandle> m_listenerEvent;
-    std::unordered_map<TcpConnection*, std::unique_ptr<TcpConnection>> m_connections;
-    std::thread m_thread;
-    std::thread::id m_loopThreadId;    ///< Thread ID of the event-loop thread.
-    Lifecycle m_lifecycle{Lifecycle::Constructed};
-    bool m_joinInProgress{false};      ///< Guards against concurrent stop() calls.
+    std::list<std::unique_ptr<TcpConnection>> m_connections;
 };
 
 } // namespace miniasyncnetsockets::detail

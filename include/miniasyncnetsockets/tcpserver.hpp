@@ -6,7 +6,6 @@
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <sys/socket.h>
 
@@ -23,24 +22,30 @@ class ServerState;
 
 /**
  * @brief Configuration options for TcpServer.
+ * backlog - listen() backlog.
+ * maxFrameSize - Maximum frame payload size in bytes.
+ * maxPendingWriteBytes - write bytes per connection.
+ * maxConnections - 0 = unlimited.
  */
-struct ServerOptions
-{
-    int backlog{SOMAXCONN};                               ///< listen() backlog.
-    std::size_t maxFrameSize{1024U * 1024U};              ///< Maximum frame payload size in bytes.
-    std::size_t maxPendingWriteBytes{4U * 1024U * 1024U}; ///< Maximum queued write bytes per connection.
-    std::size_t maxConnections{0};                         ///< 0 = unlimited.
+struct ServerOptions {
+    int backlog{SOMAXCONN};
+    std::size_t maxFrameSize{1024U * 1024U};
+    std::size_t maxPendingWriteBytes{4U * 1024U * 1024U};
+    std::size_t maxConnections{0};
 };
 
 /**
  * @brief Callbacks for TcpServer events.
+ * onFrame - complete frame is received.
+ * onConnection - new connection is accepted.
+ * onClose - connection is closed.
+ * onError - error occured.
  */
-struct ServerCallbacks
-{
-    FrameHandler onFrame;           ///< Called when a complete frame is received from a connection.
-    ConnectionHandler onConnection; ///< Called when a new connection is accepted.
-    CloseHandler onClose;           ///< Called when a connection is closed.
-    ErrorHandler onError;           ///< Called when an error occurs on a connection.
+struct ServerCallbacks {
+    FrameHandler onFrame;
+    ConnectionHandler onConnection;
+    CloseHandler onClose;
+    ErrorHandler onError;
 };
 
 /**
@@ -59,9 +64,8 @@ public:
      * @param callbacks User-provided event callbacks.
      * @param options Optional server configuration.
      */
-    TcpServer(mininetsockets::Endpoint endpoint,
-              ServerCallbacks callbacks,
-              ServerOptions options = {});
+    TcpServer(mininetsockets::Endpoint endpoint, ServerCallbacks callbacks,
+        ServerOptions options = {});
     ~TcpServer() noexcept;
 
     TcpServer(const TcpServer&) = delete;

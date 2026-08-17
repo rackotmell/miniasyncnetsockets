@@ -149,9 +149,9 @@ remove event registration -> destroy EventHandle -> destroy TcpStream
 - `TcpServer::start()` вызывается один раз до начала работы;
 - direct cross-thread access к `TcpConnection` не поддерживается.
 
-Если `stop()` вызван из event-loop callback, он только устанавливает запрос на
-остановку и не выполняет `join()` текущего потока. При вызове из другого потока
-он дожидается завершения event-loop thread.
+`stop()` только запрашивает остановку event loop и не дожидается завершения
+потока. Деструктор дожидается завершения через `join()`. Пользователь должен
+избегать уничтожения `TcpServer` из callback event loop.
 
 Межпоточная отправка будет реализована позднее через очередь команд и
 `TriggerHandle`, а не через прямой вызов socket methods из worker thread.

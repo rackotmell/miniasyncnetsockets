@@ -4,22 +4,24 @@
 #include "serverstate.hpp"
 
 #include <exception>
-#include <utility>
 #include <sys/epoll.h>
+#include <utility>
 
 namespace miniasyncnetsockets::detail
 {
 
-ServerState::ServerState(mininetsockets::Endpoint endpoint,
-                         ServerCallbacks callbacks,
-                         ServerOptions options)
-    : m_endpoint(std::move(endpoint)),
-      m_callbacks(std::move(callbacks)),
+ServerState::ServerState(
+    mininetsockets::Endpoint endpoint, ServerCallbacks callbacks, ServerOptions options)
+    : m_endpoint(std::move(endpoint)), m_callbacks(std::move(callbacks)),
       m_options(options)
 {
 }
 
-ServerState::~ServerState() noexcept { stop(); }
+ServerState::~ServerState() noexcept
+{
+    stop();
+    if (m_thread.joinable()) m_thread.join();
+}
 
 void ServerState::start()
 {
@@ -34,47 +36,23 @@ void ServerState::start()
         m_endpoint, m_options.backlog, mininetsockets::ListenerMode::NonBlocking));
 
     // Register the listener fd in the event loop for accept events.
-    auto listenerEvent = m_loop.createEvent(
-        listener->fdView(), EPOLLIN, miniruntime::event::EventType::SOCKET, [this](int) {
-            acceptConnections();
-        });
+    auto listenerEvent = m_loop.createEvent(listener->fdView(), EPOLLIN,
+        miniruntime::event::EventType::SOCKET, [this](int) { acceptConnections(); });
 
     m_listener = std::move(listener);
     m_listenerEvent.emplace(std::move(listenerEvent));
-    try {
-        m_thread = std::thread([this] { run(); });
-    } catch (...) {
-        // Roll back listener registration on thread creation failure.
-        m_listenerEvent.reset();
-        m_listener.reset();
-        throw;
-    }
+
+    startThread();
+
     m_lifecycle = Lifecycle::Running;
 }
 
 void ServerState::stop() noexcept
 {
-    std::unique_lock lock(m_mutex);
+    std::lock_guard lock(m_mutex);
     if (m_lifecycle == Lifecycle::Constructed) return;
-
-    // If called from the loop thread, avoid self-join.
-    const bool calledFromLoopThread = std::this_thread::get_id() == m_loopThreadId;
-    if (m_lifecycle == Lifecycle::Running) m_loop.stop();
-    if (calledFromLoopThread || !m_thread.joinable()) return;
-
-    // If another thread is already joining, wait for it to finish.
-    if (m_joinInProgress) {
-        m_stateChanged.wait(lock, [this] { return !m_joinInProgress; });
-        return;
-    }
-
-    // Join the event-loop thread outside the lock.
-    m_joinInProgress = true;
-    lock.unlock();
-    m_thread.join();
-    lock.lock();
-    m_joinInProgress = false;
-    m_stateChanged.notify_all();
+    m_lifecycle = Lifecycle::Stopped;
+    m_loop.stop();
 }
 
 bool ServerState::isRunning() const noexcept
@@ -90,14 +68,9 @@ mininetsockets::Endpoint ServerState::localEndpoint() const
     return m_listener->localEndpoint();
 }
 
-// Event-loop thread entry: records thread ID, runs the loop, then cleans up.
+// Event-loop thread entry point.
 void ServerState::run()
 {
-    {
-        std::lock_guard lock(m_mutex);
-        m_loopThreadId = std::this_thread::get_id();
-    }
-
     try {
         m_loop.run();
     } catch (...) {
@@ -106,20 +79,28 @@ void ServerState::run()
     cleanupAfterRun();
 }
 
+// Starts thread safely
+void ServerState::startThread()
+{
+    try {
+        m_thread = std::thread([this] { run(); });
+    } catch (...) {
+        // Roll back listener registration on thread creation failure.
+        m_listenerEvent.reset();
+        m_listener.reset();
+        throw;
+    }
+}
+
 // Accepts all pending connections, respecting maxConnections.
 void ServerState::acceptConnections()
 {
     if (!m_listener) return;
     cleanupClosedConnections();
 
-    while (true) {
-        std::optional<mininetsockets::TcpStream> stream;
-        try {
-            stream = m_listener->accept();
-        } catch (...) {
-            m_loop.stop();
-            return;
-        }
+    for (;;) {
+        auto stream = m_listener->accept();
+
         if (!stream) break;
 
         // Reject new connections if at capacity.
@@ -134,6 +115,7 @@ void ServerState::acceptConnections()
             // The accepted stream is closed by its RAII owner.
         }
     }
+
     cleanupClosedConnections();
 }
 
@@ -141,21 +123,18 @@ void ServerState::acceptConnections()
 void ServerState::addConnection(mininetsockets::TcpStream stream)
 {
     const int fd = stream.fdView();
-    auto connection = std::unique_ptr<TcpConnection>(new TcpConnection(
-        std::move(stream),
-        m_options.maxFrameSize,
-        m_options.maxPendingWriteBytes,
-        m_callbacks.onFrame,
-        m_callbacks.onClose,
-        m_callbacks.onError));
+
+    auto connection = std::unique_ptr<TcpConnection>(new TcpConnection(std::move(stream),
+        m_options.maxFrameSize, m_options.maxPendingWriteBytes, m_callbacks.onFrame,
+        m_callbacks.onClose, m_callbacks.onError));
+
     TcpConnection* const rawConnection = connection.get();
 
-    auto event = m_loop.createEvent(
-        fd, EPOLLIN, miniruntime::event::EventType::SOCKET, [rawConnection](int) {
-            rawConnection->onEvent();
-        });
+    auto event = m_loop.createEvent(fd, EPOLLIN, miniruntime::event::EventType::SOCKET,
+        [rawConnection](int) { rawConnection->onEvent(); });
+
     rawConnection->attachEvent(std::move(event));
-    m_connections.emplace(rawConnection, std::move(connection));
+    m_connections.push_back(std::move(connection));
 
     if (m_callbacks.onConnection) {
         try {
@@ -166,11 +145,11 @@ void ServerState::addConnection(mininetsockets::TcpStream stream)
     }
 }
 
-// Removes entries for closed connections from the map.
+// Removes entries for closed connections from the list.
 void ServerState::cleanupClosedConnections()
 {
     for (auto it = m_connections.begin(); it != m_connections.end();) {
-        if (!it->first->isOpen()) {
+        if (!(*it)->isOpen()) {
             it = m_connections.erase(it);
         } else {
             ++it;
@@ -186,15 +165,15 @@ void ServerState::cleanupAfterRun() noexcept
         m_listenerEvent.reset();
         m_listener.reset();
     }
-    for (auto& [connection, state] : m_connections) connection->close();
+
+    for (auto& conn : m_connections)
+        conn->close();
     m_connections.clear();
 
     {
         std::lock_guard lock(m_mutex);
-        m_loopThreadId = {};
         m_lifecycle = Lifecycle::Stopped;
     }
-    m_stateChanged.notify_all();
 }
 
 } // namespace miniasyncnetsockets::detail
