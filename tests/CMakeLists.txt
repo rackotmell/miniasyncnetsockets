@@ -15,3 +15,8 @@ add_executable(framecodectest framecodectest.cpp)
 target_include_directories(framecodectest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 target_link_libraries(framecodectest PRIVATE miniasyncnetsockets GTest::gtest_main)
 gtest_discover_tests(framecodectest)
+
+add_executable(writequeuetest writequeuetest.cpp)
+target_include_directories(writequeuetest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_link_libraries(writequeuetest PRIVATE miniasyncnetsockets GTest::gtest_main)
+gtest_discover_tests(writequeuetest)
