@@ -37,6 +37,7 @@ void FrameCodec::consume(std::span<const std::byte> input, const FrameCallback& 
 
             if (payloadSize == 0) {
                 if (onFrame) onFrame(Frame{});
+                if (m_state == FrameCodecState::Closed) return;
                 continue;
             }
 
@@ -60,6 +61,7 @@ void FrameCodec::consume(std::span<const std::byte> input, const FrameCallback& 
             m_payloadBytes = 0;
             m_state = FrameCodecState::ReadingHeader;
             if (onFrame) onFrame(std::move(frame));
+            if (m_state == FrameCodecState::Closed) return;
         }
     }
 }
