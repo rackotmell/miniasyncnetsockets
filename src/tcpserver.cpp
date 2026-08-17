@@ -2,7 +2,7 @@
 /// @brief TcpServer pimpl delegation.
 
 #include "miniasyncnetsockets/tcpserver.hpp"
-
+#include "miniasyncnetsockets/errors.hpp"
 #include "detail/serverstate.hpp"
 
 #include <utility>

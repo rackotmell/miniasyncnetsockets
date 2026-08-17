@@ -2,8 +2,8 @@
 /// @brief Implementation of the buffered write queue.
 
 #include "writequeue.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
-#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <utility>

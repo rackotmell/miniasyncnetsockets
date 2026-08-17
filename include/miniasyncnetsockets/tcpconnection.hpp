@@ -12,7 +12,6 @@
 #include <span>
 #include <vector>
 
-#include "miniasyncnetsockets/errors.hpp"
 #include "mininetsockets/endpoint.hpp"
 #include "mininetsockets/tcpstream.hpp"
 
@@ -33,7 +32,7 @@ namespace detail
 {
 class ConnectionState;
 class ServerState;
-}
+} // namespace detail
 
 class TcpConnection;
 
@@ -102,12 +101,9 @@ public:
     [[nodiscard]] mininetsockets::Endpoint remoteEndpoint() const;
 
 private:
-    TcpConnection(mininetsockets::TcpStream stream,
-                  std::size_t maxFrameSize,
-                  std::size_t maxPendingWriteBytes,
-                  FrameHandler onFrame,
-                  CloseHandler onClose,
-                  ErrorHandler onError);
+    TcpConnection(mininetsockets::TcpStream stream, std::size_t maxFrameSize,
+        std::size_t maxPendingWriteBytes, FrameHandler onFrame, CloseHandler onClose,
+        ErrorHandler onError);
 
     void attachEvent(miniruntime::event::EventHandle event);
     void onEvent();

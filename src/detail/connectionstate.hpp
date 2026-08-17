@@ -8,10 +8,10 @@
 #include <optional>
 
 #include "framecodec.hpp"
-#include "writequeue.hpp"
 #include "miniasyncnetsockets/tcpconnection.hpp"
-#include "miniruntime/event/handle.h"
 #include "mininetsockets/tcpstream.hpp"
+#include "miniruntime/event/handle.h"
+#include "writequeue.hpp"
 
 namespace miniasyncnetsockets::detail
 {
@@ -23,12 +23,9 @@ namespace miniasyncnetsockets::detail
 class ConnectionState
 {
 public:
-    ConnectionState(mininetsockets::TcpStream stream,
-                    std::size_t maxFrameSize,
-                    std::size_t maxPendingWriteBytes,
-                    FrameHandler onFrame,
-                    CloseHandler onClose,
-                    ErrorHandler onError);
+    ConnectionState(mininetsockets::TcpStream stream, std::size_t maxFrameSize,
+        std::size_t maxPendingWriteBytes, FrameHandler onFrame, CloseHandler onClose,
+        ErrorHandler onError);
 
     // Registers the epoll event handle for this connection.
     void attachEvent(miniruntime::event::EventHandle event);
@@ -63,12 +60,15 @@ private:
 
     mininetsockets::TcpStream m_stream;
     std::optional<miniruntime::event::EventHandle> m_event;
-    const std::size_t m_maxFrameSize;
+
     FrameCodec m_codec;
     WriteQueue m_writeQueue;
+    const std::size_t m_maxFrameSize;
+
     FrameHandler m_onFrame;
     CloseHandler m_onClose;
     ErrorHandler m_onError;
+
     bool m_open{true}; ///< False after close() has been called.
 };
 

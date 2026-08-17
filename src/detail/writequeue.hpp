@@ -9,7 +9,6 @@
 #include <span>
 #include <vector>
 
-#include "miniasyncnetsockets/errors.hpp"
 #include "mininetsockets/io.hpp"
 
 namespace miniasyncnetsockets::detail

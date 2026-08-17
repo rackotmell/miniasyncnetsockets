@@ -11,18 +11,12 @@ namespace miniasyncnetsockets
 {
 
 // Delegates to ConnectionState constructor.
-TcpConnection::TcpConnection(mininetsockets::TcpStream stream,
-                             std::size_t maxFrameSize,
-                             std::size_t maxPendingWriteBytes,
-                             FrameHandler onFrame,
-                             CloseHandler onClose,
-                             ErrorHandler onError)
-    : m_state(std::make_unique<detail::ConnectionState>(std::move(stream),
-                                                        maxFrameSize,
-                                                        maxPendingWriteBytes,
-                                                        std::move(onFrame),
-                                                        std::move(onClose),
-                                                        std::move(onError)))
+TcpConnection::TcpConnection(mininetsockets::TcpStream stream, std::size_t maxFrameSize,
+    std::size_t maxPendingWriteBytes, FrameHandler onFrame, CloseHandler onClose,
+    ErrorHandler onError)
+    : m_state(std::make_unique<detail::ConnectionState>(std::move(stream), maxFrameSize,
+          maxPendingWriteBytes, std::move(onFrame), std::move(onClose),
+          std::move(onError)))
 {
 }
 

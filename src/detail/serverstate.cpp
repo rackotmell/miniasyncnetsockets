@@ -2,6 +2,7 @@
 /// @brief Implementation of the server event-loop thread and connection management.
 
 #include "serverstate.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
 #include <exception>
 #include <sys/epoll.h>

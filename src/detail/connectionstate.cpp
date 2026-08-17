@@ -5,24 +5,18 @@
 
 #include <array>
 #include <stdexcept>
-#include <utility>
 #include <sys/epoll.h>
+#include <utility>
 
 namespace miniasyncnetsockets::detail
 {
 
 ConnectionState::ConnectionState(mininetsockets::TcpStream stream,
-                                 std::size_t maxFrameSize,
-                                 std::size_t maxPendingWriteBytes,
-                                 FrameHandler onFrame,
-                                 CloseHandler onClose,
-                                 ErrorHandler onError)
-    : m_stream(std::move(stream)),
-      m_maxFrameSize(maxFrameSize),
-      m_codec(maxFrameSize),
-      m_writeQueue(maxPendingWriteBytes),
-      m_onFrame(std::move(onFrame)),
-      m_onClose(std::move(onClose)),
+    std::size_t maxFrameSize, std::size_t maxPendingWriteBytes, FrameHandler onFrame,
+    CloseHandler onClose, ErrorHandler onError)
+    : m_stream(std::move(stream)), m_codec(maxFrameSize),
+      m_writeQueue(maxPendingWriteBytes), m_maxFrameSize(maxFrameSize),
+      m_onFrame(std::move(onFrame)), m_onClose(std::move(onClose)),
       m_onError(std::move(onError))
 {
 }
@@ -55,10 +49,9 @@ void ConnectionState::handleError(TcpConnection& owner, std::exception_ptr error
 void ConnectionState::sendFrame(std::span<const std::byte> payload)
 {
     if (!m_open) throw InvalidState("connection is closed");
-    if (payload.size() > m_maxFrameSize) {
-        throw FrameTooLarge("frame payload exceeds maxFrameSize");
-    }
     if (!m_event) throw InvalidState("connection event is not attached");
+    if (payload.size() > m_maxFrameSize)
+        throw FrameTooLarge("frame payload exceeds maxFrameSize");
 
     // Enable EPOLLOUT when the queue transitions from empty to non-empty.
     const bool wasEmpty = m_writeQueue.empty();
@@ -102,13 +95,14 @@ void ConnectionState::readAvailable(TcpConnection& owner)
     std::array<std::byte, readBufferSize> buffer{};
     while (m_open) {
         const auto result = m_stream.readNonBlocking(buffer);
-        if (result.bytes > buffer.size()) throw InvalidState("socket returned too many bytes");
+        if (result.bytes > buffer.size())
+            throw InvalidState("socket returned too many bytes");
 
         if (result.bytes > 0) {
             m_codec.consume(std::span<const std::byte>(buffer.data(), result.bytes),
-                            [this, &owner](Frame frame) {
-                                if (m_onFrame) m_onFrame(owner, std::move(frame));
-                            });
+                [this, &owner](Frame frame) {
+                    if (m_onFrame) m_onFrame(owner, std::move(frame));
+                });
             if (!m_open) return;
         }
 
@@ -117,7 +111,8 @@ void ConnectionState::readAvailable(TcpConnection& owner)
             close(owner);
             return;
         }
-        if (result.status == mininetsockets::IoStatus::Blocked || result.bytes == 0) return;
+        if (result.status == mininetsockets::IoStatus::Blocked || result.bytes == 0)
+            return;
     }
 }
 
@@ -136,8 +131,7 @@ void ConnectionState::flushWrites()
 }
 
 // Safely invokes the onError callback; swallows any exception it throws.
-void ConnectionState::reportError(TcpConnection& owner,
-                                  std::exception_ptr error) noexcept
+void ConnectionState::reportError(TcpConnection& owner, std::exception_ptr error) noexcept
 {
     if (!m_onError) return;
     try {
