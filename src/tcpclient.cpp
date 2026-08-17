@@ -1,3 +1,6 @@
+/// @file tcpclient.cpp
+/// @brief TcpClient pimpl delegation.
+
 #include "miniasyncnetsockets/tcpclient.hpp"
 
 #include "detail/clientstate.hpp"
@@ -7,6 +10,7 @@
 namespace miniasyncnetsockets
 {
 
+// Delegates to ClientState constructor.
 TcpClient::TcpClient(mininetsockets::Endpoint endpoint,
                      ClientCallbacks callbacks,
                      ClientOptions options)
@@ -16,6 +20,7 @@ TcpClient::TcpClient(mininetsockets::Endpoint endpoint,
 {
 }
 
+// Ensures a clean shutdown on destruction.
 TcpClient::~TcpClient() noexcept
 {
     if (m_state) m_state->stop();

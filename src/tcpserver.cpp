@@ -1,3 +1,6 @@
+/// @file tcpserver.cpp
+/// @brief TcpServer pimpl delegation.
+
 #include "miniasyncnetsockets/tcpserver.hpp"
 
 #include "detail/serverstate.hpp"
@@ -7,6 +10,7 @@
 namespace miniasyncnetsockets
 {
 
+// Delegates to ServerState constructor.
 TcpServer::TcpServer(mininetsockets::Endpoint endpoint,
                      ServerCallbacks callbacks,
                      ServerOptions options)
@@ -16,6 +20,7 @@ TcpServer::TcpServer(mininetsockets::Endpoint endpoint,
 {
 }
 
+// Ensures a clean shutdown on destruction.
 TcpServer::~TcpServer() noexcept
 {
     if (m_state) m_state->stop();

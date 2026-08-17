@@ -1,3 +1,6 @@
+/// @file clientstate.cpp
+/// @brief Implementation of the client event-loop thread and connect lifecycle.
+
 #include "clientstate.hpp"
 
 #include <array>
@@ -21,6 +24,7 @@ ClientState::ClientState(mininetsockets::Endpoint endpoint,
 
 ClientState::~ClientState() noexcept { stop(); }
 
+// Initiates a non-blocking connect, registers events, and starts the event-loop thread.
 void ClientState::start(TcpClient& owner)
 {
     std::lock_guard lock(m_mutex);
@@ -33,12 +37,14 @@ void ClientState::start(TcpClient& owner)
 
     m_owner = &owner;
     try {
+        // Begin non-blocking connect.
         m_pending.emplace(mininetsockets::PendingTcpStream::connect(m_endpoint));
         auto event = m_loop.createEvent(
             m_pending->fdView(), EPOLLOUT, miniruntime::event::EventType::SOCKET, [this](int) {
                 onEvent();
             });
         m_event.emplace(std::move(event));
+        // Arm the connect timeout timer.
         m_connectTimer.emplace(m_loop.createTimer(m_options.connectTimeout, [this] {
             onConnectTimeout();
         }));
@@ -58,15 +64,18 @@ void ClientState::stop() noexcept
     std::unique_lock lock(m_mutex);
     if (m_lifecycle == Lifecycle::Constructed) return;
 
+    // Avoid self-join if called from the loop thread.
     const bool calledFromLoopThread = std::this_thread::get_id() == m_loopThreadId;
     m_loop.stop();
     if (calledFromLoopThread || !m_thread.joinable()) return;
 
+    // If another thread is already joining, wait for it to finish.
     if (m_joinInProgress) {
         m_stateChanged.wait(lock, [this] { return !m_joinInProgress; });
         return;
     }
 
+    // Join the event-loop thread outside the lock.
     m_joinInProgress = true;
     lock.unlock();
     m_thread.join();
@@ -83,11 +92,13 @@ void ClientState::sendFrame(std::span<const std::byte> payload)
     }
     if (!m_event) throw InvalidState("client event is not attached");
 
+    // Enable EPOLLOUT when the queue transitions from empty to non-empty.
     const bool wasEmpty = m_writeQueue.empty();
     m_writeQueue.enqueue(payload);
     if (wasEmpty) m_event->updateEvents(EPOLLIN | EPOLLOUT);
 }
 
+// Event-loop thread entry: records thread ID, runs the loop, then cleans up.
 void ClientState::run() noexcept
 {
     {
@@ -103,6 +114,7 @@ void ClientState::run() noexcept
     cleanupAfterRun();
 }
 
+// Dispatches events: complete the connect first, then read/write.
 void ClientState::onEvent()
 {
     if (!m_open) return;
@@ -127,6 +139,7 @@ void ClientState::onConnectTimeout()
     }
 }
 
+// Completes the non-blocking connect and transitions to the Running state.
 void ClientState::finishConnect()
 {
     if (!m_pending) throw InvalidState("pending client stream is not available");
@@ -147,6 +160,7 @@ void ClientState::finishConnect()
     if (m_callbacks.onConnected) m_callbacks.onConnected(*m_owner);
 }
 
+// Reads from the socket until blocked or EOF, feeding data into the frame codec.
 void ClientState::readAvailable()
 {
     std::array<std::byte, 64U * 1024U> buffer{};
@@ -173,6 +187,7 @@ void ClientState::readAvailable()
     }
 }
 
+// Drains the write queue to the socket and disables EPOLLOUT when empty.
 void ClientState::flushWrites()
 {
     if (m_writeQueue.empty()) return;
@@ -190,6 +205,7 @@ void ClientState::handleError(std::exception_ptr error) noexcept
     close(error);
 }
 
+// Safely invokes the onError callback; swallows any exception it throws.
 void ClientState::reportError(std::exception_ptr error) noexcept
 {
     if (!m_callbacks.onError) return;
@@ -199,6 +215,7 @@ void ClientState::reportError(std::exception_ptr error) noexcept
     }
 }
 
+// Closes resources and invokes onClose if the connection was established.
 void ClientState::close(std::exception_ptr error) noexcept
 {
     if (!m_open) return;
@@ -213,6 +230,7 @@ void ClientState::close(std::exception_ptr error) noexcept
     m_stream.reset();
     m_pending.reset();
 
+    // Notify onClose at most once, only if we were connected.
     if (m_connected && !m_closeNotified) {
         m_closeNotified = true;
         if (m_callbacks.onClose) {
@@ -226,6 +244,7 @@ void ClientState::close(std::exception_ptr error) noexcept
     m_loop.stop();
 }
 
+// Post-loop cleanup: closes resources and notifies waiting stop() callers.
 void ClientState::cleanupAfterRun() noexcept
 {
     close(nullptr);

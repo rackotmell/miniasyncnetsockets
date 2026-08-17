@@ -1,3 +1,6 @@
+/// @file serverstate.cpp
+/// @brief Implementation of the server event-loop thread and connection management.
+
 #include "serverstate.hpp"
 
 #include <exception>
@@ -25,10 +28,12 @@ void ServerState::start()
         throw InvalidState("server can only be started once");
     }
 
+    // Bind the listener socket.
     std::optional<mininetsockets::TcpListener> listener;
     listener.emplace(mininetsockets::TcpListener::bind(
         m_endpoint, m_options.backlog, mininetsockets::ListenerMode::NonBlocking));
 
+    // Register the listener fd in the event loop for accept events.
     auto listenerEvent = m_loop.createEvent(
         listener->fdView(), EPOLLIN, miniruntime::event::EventType::SOCKET, [this](int) {
             acceptConnections();
@@ -39,6 +44,7 @@ void ServerState::start()
     try {
         m_thread = std::thread([this] { run(); });
     } catch (...) {
+        // Roll back listener registration on thread creation failure.
         m_listenerEvent.reset();
         m_listener.reset();
         throw;
@@ -51,15 +57,18 @@ void ServerState::stop() noexcept
     std::unique_lock lock(m_mutex);
     if (m_lifecycle == Lifecycle::Constructed) return;
 
+    // If called from the loop thread, avoid self-join.
     const bool calledFromLoopThread = std::this_thread::get_id() == m_loopThreadId;
     if (m_lifecycle == Lifecycle::Running) m_loop.stop();
     if (calledFromLoopThread || !m_thread.joinable()) return;
 
+    // If another thread is already joining, wait for it to finish.
     if (m_joinInProgress) {
         m_stateChanged.wait(lock, [this] { return !m_joinInProgress; });
         return;
     }
 
+    // Join the event-loop thread outside the lock.
     m_joinInProgress = true;
     lock.unlock();
     m_thread.join();
@@ -81,6 +90,7 @@ mininetsockets::Endpoint ServerState::localEndpoint() const
     return m_listener->localEndpoint();
 }
 
+// Event-loop thread entry: records thread ID, runs the loop, then cleans up.
 void ServerState::run()
 {
     {
@@ -96,6 +106,7 @@ void ServerState::run()
     cleanupAfterRun();
 }
 
+// Accepts all pending connections, respecting maxConnections.
 void ServerState::acceptConnections()
 {
     if (!m_listener) return;
@@ -111,6 +122,7 @@ void ServerState::acceptConnections()
         }
         if (!stream) break;
 
+        // Reject new connections if at capacity.
         if (m_options.maxConnections != 0 &&
             m_connections.size() >= m_options.maxConnections) {
             continue;
@@ -125,6 +137,7 @@ void ServerState::acceptConnections()
     cleanupClosedConnections();
 }
 
+// Creates a TcpConnection, registers it in the event loop, and notifies onConnection.
 void ServerState::addConnection(mininetsockets::TcpStream stream)
 {
     const int fd = stream.fdView();
@@ -153,6 +166,7 @@ void ServerState::addConnection(mininetsockets::TcpStream stream)
     }
 }
 
+// Removes entries for closed connections from the map.
 void ServerState::cleanupClosedConnections()
 {
     for (auto it = m_connections.begin(); it != m_connections.end();) {
@@ -164,6 +178,7 @@ void ServerState::cleanupClosedConnections()
     }
 }
 
+// Post-loop cleanup: releases listener, closes all connections, updates lifecycle.
 void ServerState::cleanupAfterRun() noexcept
 {
     {

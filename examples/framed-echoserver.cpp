@@ -1,9 +1,13 @@
+/// @file framed-echoserver.cpp
+/// @brief Minimal framed echo server example using TcpServer.
+
 #include <miniasyncnetsockets/miniasyncnetsockets.hpp>
 
 #include <iostream>
 
 int main()
 {
+    // Echo callback: sends back every received frame.
     miniasyncnetsockets::ServerCallbacks callbacks;
     callbacks.onFrame = [](miniasyncnetsockets::TcpConnection& connection,
                            miniasyncnetsockets::Frame frame) {

@@ -1,3 +1,6 @@
+/// @file writequeuetest.cpp
+/// @brief Unit tests for detail::WriteQueue.
+
 #include "detail/writequeue.hpp"
 
 #include <gtest/gtest.h>
@@ -15,6 +18,7 @@ using miniasyncnetsockets::detail::WriteQueue;
 using mininetsockets::IoResult;
 using mininetsockets::IoStatus;
 
+// Converts a string literal to a byte vector.
 std::vector<std::byte> bytes(std::string_view text)
 {
     std::vector<std::byte> result;
@@ -25,6 +29,7 @@ std::vector<std::byte> bytes(std::string_view text)
     return result;
 }
 
+// Serializes a payload with a 4-byte big-endian header (for small payloads).
 std::vector<std::byte> serialized(std::string_view payload)
 {
     auto result = std::vector<std::byte>{
@@ -46,10 +51,12 @@ TEST(WriteQueueTest, SerializesFrameAndTracksPendingBytes)
     const auto payload = bytes("hello");
     queue.enqueue(payload);
 
+    // 4-byte header + 5-byte payload = 9 bytes total.
     EXPECT_EQ(queue.pendingBytes(), 9U);
     EXPECT_EQ(std::vector<std::byte>(queue.pendingData().begin(), queue.pendingData().end()),
               serialized("hello"));
 
+    // Consume 2 bytes, verify offset tracking.
     queue.consume(2);
     EXPECT_EQ(queue.pendingBytes(), 7U);
     EXPECT_EQ(queue.pendingData().size(), 7U);
@@ -85,6 +92,7 @@ TEST(WriteQueueTest, RetainsOffsetAfterBlockedWrite)
     queue.enqueue(bytes("partial"));
     std::vector<std::byte> written;
 
+    // First write: only 3 bytes accepted, then blocked.
     const auto first = queue.writeNonBlocking([&written](std::span<std::byte> data) {
         const auto count = std::min<std::size_t>(3, data.size());
         written.insert(written.end(), data.begin(), data.begin() + count);
@@ -95,6 +103,7 @@ TEST(WriteQueueTest, RetainsOffsetAfterBlockedWrite)
     EXPECT_EQ(first.bytes, 3U);
     EXPECT_EQ(queue.pendingBytes(), serialized("partial").size() - 3U);
 
+    // Second write: drain the rest.
     const auto second = queue.writeNonBlocking([&written](std::span<std::byte> data) {
         written.insert(written.end(), data.begin(), data.end());
         return IoResult{data.size(), IoStatus::Progress};

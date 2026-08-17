@@ -1,3 +1,6 @@
+/// @file tcpconnection.cpp
+/// @brief TcpConnection pimpl delegation.
+
 #include "miniasyncnetsockets/tcpconnection.hpp"
 
 #include "detail/connectionstate.hpp"
@@ -7,6 +10,7 @@
 namespace miniasyncnetsockets
 {
 
+// Delegates to ConnectionState constructor.
 TcpConnection::TcpConnection(mininetsockets::TcpStream stream,
                              std::size_t maxFrameSize,
                              std::size_t maxPendingWriteBytes,
@@ -22,6 +26,7 @@ TcpConnection::TcpConnection(mininetsockets::TcpStream stream,
 {
 }
 
+// Ensures the connection is closed on destruction.
 TcpConnection::~TcpConnection() noexcept { close(); }
 
 void TcpConnection::attachEvent(miniruntime::event::EventHandle event)
@@ -29,6 +34,7 @@ void TcpConnection::attachEvent(miniruntime::event::EventHandle event)
     m_state->attachEvent(std::move(event));
 }
 
+// Delegates to the connection state's event handler.
 void TcpConnection::onEvent() { m_state->onEvent(*this); }
 
 void TcpConnection::handleError(std::exception_ptr error) noexcept

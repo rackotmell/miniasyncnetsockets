@@ -13,6 +13,9 @@ if (ENABLE_ASAN_UBSAN AND ENABLE_TSAN)
     message(FATAL_ERROR "ASAN+UBSAN and TSAN can not be combined")
 endif()
 
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 20)
+
 # Dependencies are embedded in this project; their standalone tests and examples
 # must not become part of the root build.
 set(BUILD_TESTS OFF)

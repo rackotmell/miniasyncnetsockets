@@ -1,3 +1,6 @@
+/// @file connectionstate.cpp
+/// @brief Implementation of the per-connection event handler.
+
 #include "connectionstate.hpp"
 
 #include <array>
@@ -30,6 +33,7 @@ void ConnectionState::attachEvent(miniruntime::event::EventHandle event)
     m_event.emplace(std::move(event));
 }
 
+// Main event-loop callback: read available data, then flush pending writes.
 void ConnectionState::onEvent(TcpConnection& owner)
 {
     if (!m_open) return;
@@ -56,6 +60,7 @@ void ConnectionState::sendFrame(std::span<const std::byte> payload)
     }
     if (!m_event) throw InvalidState("connection event is not attached");
 
+    // Enable EPOLLOUT when the queue transitions from empty to non-empty.
     const bool wasEmpty = m_writeQueue.empty();
     m_writeQueue.enqueue(payload);
     if (wasEmpty) m_event->updateEvents(EPOLLIN | EPOLLOUT);
@@ -69,6 +74,7 @@ void ConnectionState::close(TcpConnection& owner) noexcept
     m_codec.close();
     m_event.reset();
 
+    // Invoke onClose; report any exception from onClose via onError.
     if (m_onClose) {
         try {
             m_onClose(owner);
@@ -90,6 +96,7 @@ mininetsockets::Endpoint ConnectionState::remoteEndpoint() const
     return m_stream.remoteEndpoint();
 }
 
+// Reads from the socket until blocked or EOF, feeding data into the frame codec.
 void ConnectionState::readAvailable(TcpConnection& owner)
 {
     std::array<std::byte, readBufferSize> buffer{};
@@ -114,6 +121,7 @@ void ConnectionState::readAvailable(TcpConnection& owner)
     }
 }
 
+// Drains the write queue to the socket and disables EPOLLOUT when empty.
 void ConnectionState::flushWrites()
 {
     if (m_writeQueue.empty()) return;
@@ -127,6 +135,7 @@ void ConnectionState::flushWrites()
     if (m_writeQueue.empty() && m_event) m_event->updateEvents(EPOLLIN);
 }
 
+// Safely invokes the onError callback; swallows any exception it throws.
 void ConnectionState::reportError(TcpConnection& owner,
                                   std::exception_ptr error) noexcept
 {

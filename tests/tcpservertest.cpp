@@ -1,3 +1,6 @@
+/// @file tcpservertest.cpp
+/// @brief Integration tests for TcpServer.
+
 #include "miniasyncnetsockets/miniasyncnetsockets.hpp"
 
 #include <gtest/gtest.h>
@@ -24,6 +27,7 @@ using miniasyncnetsockets::Frame;
 using miniasyncnetsockets::TcpServer;
 using mininetsockets::TcpStream;
 
+// Converts a string literal to a byte vector.
 std::vector<std::byte> bytes(std::string_view text)
 {
     std::vector<std::byte> result;
@@ -34,6 +38,7 @@ std::vector<std::byte> bytes(std::string_view text)
     return result;
 }
 
+// Serializes a payload with a 4-byte big-endian header.
 std::vector<std::byte> serializedFrame(std::string_view payload)
 {
     const auto size = static_cast<std::uint32_t>(payload.size());
@@ -48,6 +53,7 @@ std::vector<std::byte> serializedFrame(std::string_view payload)
     return result;
 }
 
+// Reads exactly one framed message from a TcpStream (blocking).
 Frame readFrame(TcpStream& stream)
 {
     std::array<std::byte, 4> header{};
@@ -64,6 +70,7 @@ Frame readFrame(TcpStream& stream)
     return payload;
 }
 
+// Checks whether an exception_ptr holds a specific exception type.
 template<typename ErrorType>
 bool isError(std::exception_ptr error)
 {
@@ -76,6 +83,7 @@ bool isError(std::exception_ptr error)
     }
 }
 
+// Creates a minimal echo server callback set.
 miniasyncnetsockets::ServerCallbacks makeEchoCallbacks()
 {
     miniasyncnetsockets::ServerCallbacks callbacks;
@@ -109,6 +117,7 @@ TEST(TcpServerTest, EchoesSeveralFramesAndFragmentedInput)
     server.start();
     auto client = TcpStream::connect(server.localEndpoint());
 
+    // Send two frames in a single write.
     auto first = serializedFrame("first");
     auto second = serializedFrame("second");
     std::vector<std::byte> combined = first;
@@ -118,6 +127,7 @@ TEST(TcpServerTest, EchoesSeveralFramesAndFragmentedInput)
     EXPECT_EQ(readFrame(client), bytes("first"));
     EXPECT_EQ(readFrame(client), bytes("second"));
 
+    // Send a frame in two TCP segments.
     auto fragmented = serializedFrame("fragmented");
     client.writeAll(std::span<std::byte>(fragmented.data(), 2));
     std::this_thread::sleep_for(2ms);
@@ -138,6 +148,7 @@ TEST(TcpServerTest, ReportsProtocolErrorAndClosesConnection)
                                                      std::exception_ptr error) {
         if (!reported.exchange(true)) errorPromise.set_value(error);
     };
+    // maxFrameSize = 2, but client sends a frame claiming 3 bytes.
     TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks),
                      miniasyncnetsockets::ServerOptions{.maxFrameSize = 2});
     server.start();
@@ -176,6 +187,7 @@ TEST(TcpServerTest, ExternalStopClosesActiveConnection)
     auto client = TcpStream::connect(server.localEndpoint());
     ASSERT_EQ(connectionFuture.wait_for(1s), std::future_status::ready);
 
+    // Stopping the server externally should trigger onClose on active connections.
     server.stop();
 
     ASSERT_EQ(closeFuture.wait_for(1s), std::future_status::ready);
@@ -195,6 +207,7 @@ TEST(TcpServerTest, StopFromFrameCallbackDoesNotJoinCurrentThread)
     miniasyncnetsockets::ServerCallbacks callbacks;
     callbacks.onFrame = [&serverPointer, &callbackPromise, &callbackRan](
                             miniasyncnetsockets::TcpConnection&, Frame) {
+        // Calling stop() from within a callback must not deadlock (no self-join).
         serverPointer->stop();
         if (!callbackRan.exchange(true)) callbackPromise.set_value();
     };
@@ -292,6 +305,7 @@ TEST(TcpServerTest, ReportsOnCloseExceptionEvenWhenOnErrorThrows)
     callbacks.onClose = [](const miniasyncnetsockets::TcpConnection&) {
         throw std::runtime_error("onClose failure");
     };
+    // onError itself throws -- the onClose exception should still be reported.
     callbacks.onError = [&errorPromise, &errorReported](miniasyncnetsockets::TcpConnection&,
                                                          std::exception_ptr) {
         if (!errorReported.exchange(true)) errorPromise.set_value();
@@ -328,6 +342,7 @@ TEST(TcpServerTest, RejectsConnectionsAboveLimit)
     auto secondClient = TcpStream::connect(server.localEndpoint());
     std::this_thread::sleep_for(20ms);
 
+    // Only the first connection should have been accepted.
     EXPECT_EQ(connectionCount.load(), 1);
     server.stop();
 }
@@ -352,6 +367,7 @@ TEST(TcpServerTest, WriteQueueOverflowIsReported)
     callbacks.onClose = [&closePromise, &closed](const miniasyncnetsockets::TcpConnection&) {
         if (!closed.exchange(true)) closePromise.set_value();
     };
+    // Tiny write queue: 4 bytes is less than a serialized frame.
     miniasyncnetsockets::ServerOptions options;
     options.maxPendingWriteBytes = 4;
     TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks), options);
@@ -382,6 +398,7 @@ TEST(TcpServerTest, DestructorClosesActiveConnections)
         auto client = TcpStream::connect(server.localEndpoint());
         std::this_thread::sleep_for(10ms);
     }
+    // Server destructor should close active connections.
 
     ASSERT_EQ(closeFuture.wait_for(1s), std::future_status::ready);
 }

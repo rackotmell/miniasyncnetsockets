@@ -1,3 +1,6 @@
+/// @file framecodectest.cpp
+/// @brief Unit tests for detail::FrameCodec.
+
 #include "detail/framecodec.hpp"
 
 #include <gtest/gtest.h>
@@ -15,6 +18,7 @@ using miniasyncnetsockets::Frame;
 using miniasyncnetsockets::detail::FrameCodec;
 using miniasyncnetsockets::detail::FrameCodecState;
 
+// Converts a string literal to a byte vector.
 std::vector<std::byte> bytes(std::string_view text)
 {
     std::vector<std::byte> result;
@@ -25,6 +29,7 @@ std::vector<std::byte> bytes(std::string_view text)
     return result;
 }
 
+// Serializes a payload with a 4-byte big-endian header.
 std::vector<std::byte> serializedFrame(std::string_view payload)
 {
     const auto size = static_cast<std::uint32_t>(payload.size());
@@ -65,6 +70,7 @@ TEST(FrameCodecTest, AccumulatesHeaderOneByteAtATime)
     std::vector<Frame> frames;
     const auto input = serializedFrame("header");
 
+    // Feed one byte at a time to exercise partial header accumulation.
     for (const auto byte : input) {
         codec.consume(std::span<const std::byte>(&byte, 1),
                       [&frames](Frame frame) { frames.push_back(std::move(frame)); });
@@ -80,11 +86,13 @@ TEST(FrameCodecTest, AccumulatesPayloadFragments)
     std::vector<Frame> frames;
     const auto input = serializedFrame("fragmented");
 
+    // Feed only the header + 2 payload bytes first.
     codec.consume(std::span<const std::byte>(input.data(), 6),
                   [&frames](Frame frame) { frames.push_back(std::move(frame)); });
     EXPECT_TRUE(frames.empty());
     EXPECT_EQ(codec.state(), FrameCodecState::ReadingPayload);
 
+    // Feed the remaining payload bytes.
     codec.consume(std::span<const std::byte>(input.data() + 6, input.size() - 6),
                   [&frames](Frame frame) { frames.push_back(std::move(frame)); });
 
@@ -137,6 +145,7 @@ TEST(FrameCodecTest, RejectsFrameAboveLimitBeforePayloadAllocation)
 TEST(FrameCodecTest, RejectsEofInsideHeader)
 {
     const auto input = serializedFrame("payload");
+    // Feed 1..3 header bytes then call endOfStream -- all should throw.
     for (std::size_t bytesReceived = 1; bytesReceived < 4; ++bytesReceived) {
         FrameCodec codec(1024);
         codec.consume(std::span<const std::byte>(input.data(), bytesReceived),
@@ -150,6 +159,7 @@ TEST(FrameCodecTest, RejectsEofInsideHeader)
 TEST(FrameCodecTest, RejectsEofInsidePayload)
 {
     const auto input = serializedFrame("payload");
+    // Feed 5..N-1 bytes (partial payload) then call endOfStream.
     for (std::size_t bytesReceived = 5; bytesReceived < input.size(); ++bytesReceived) {
         FrameCodec codec(1024);
         codec.consume(std::span<const std::byte>(input.data(), bytesReceived),

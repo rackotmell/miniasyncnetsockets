@@ -1,3 +1,8 @@
+/**
+ * @file miniasyncnetsockets.hpp
+ * @brief Umbrella header for the miniasyncnetsockets library.
+ */
+
 #pragma once
 
 #include "miniasyncnetsockets/tcpclient.hpp"

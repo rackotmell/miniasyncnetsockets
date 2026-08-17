@@ -1,3 +1,6 @@
+/// @file tcpclienttest.cpp
+/// @brief Integration tests for TcpClient.
+
 #include "miniasyncnetsockets/miniasyncnetsockets.hpp"
 
 #include <gtest/gtest.h>
@@ -14,6 +17,7 @@ using namespace std::chrono_literals;
 namespace
 {
 
+// Converts a string literal to a byte vector.
 std::vector<std::byte> bytes(std::string_view text)
 {
     std::vector<std::byte> result;
@@ -24,6 +28,7 @@ std::vector<std::byte> bytes(std::string_view text)
     return result;
 }
 
+// Creates a minimal echo server callback set.
 miniasyncnetsockets::ServerCallbacks echoCallbacks()
 {
     miniasyncnetsockets::ServerCallbacks callbacks;
