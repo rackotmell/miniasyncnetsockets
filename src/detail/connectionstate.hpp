@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <exception>
+#include <mutex>
 #include <optional>
 
 #include "framecodec.hpp"
@@ -61,6 +62,7 @@ private:
     mininetsockets::TcpStream m_stream;
     std::optional<miniruntime::event::EventHandle> m_event;
 
+    mutable std::mutex m_mutex;
     FrameCodec m_codec;
     WriteQueue m_writeQueue;
     const std::size_t m_maxFrameSize;

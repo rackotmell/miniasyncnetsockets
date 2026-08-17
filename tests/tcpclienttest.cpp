@@ -59,19 +59,19 @@ TEST(TcpClientTest, ConnectsSendsAndReceivesFrame)
     std::vector<std::byte> received;
 
     miniasyncnetsockets::ClientCallbacks callbacks;
-    callbacks.onConnected = [&connectedPromise, &connected](miniasyncnetsockets::TcpClient& client) {
+    callbacks.onConnected = [&connectedPromise, &connected](miniasyncnetsockets::TcpConnection& connection) {
         if (!connected.exchange(true)) connectedPromise.set_value();
         auto payload = bytes("client hello");
-        client.sendFrame(payload);
+        connection.sendFrame(payload);
     };
     callbacks.onFrame = [&framePromise, &frameReceived, &received](
-                            miniasyncnetsockets::TcpClient& client,
+                            miniasyncnetsockets::TcpConnection& connection,
                             miniasyncnetsockets::Frame frame) {
         received = std::move(frame);
         if (!frameReceived.exchange(true)) framePromise.set_value();
-        client.stop();
+        connection.close();
     };
-    callbacks.onClose = [&closePromise, &closed](miniasyncnetsockets::TcpClient&) {
+    callbacks.onClose = [&closePromise, &closed](const miniasyncnetsockets::TcpConnection&) {
         if (!closed.exchange(true)) closePromise.set_value();
     };
 

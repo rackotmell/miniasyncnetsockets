@@ -32,6 +32,7 @@ namespace detail
 {
 class ConnectionState;
 class ServerState;
+class ClientState;
 } // namespace detail
 
 class TcpConnection;
@@ -109,8 +110,8 @@ private:
     void onEvent();
     void handleError(std::exception_ptr error) noexcept;
 
-    friend class TcpServer;
     friend class detail::ServerState;
+    friend class detail::ClientState;
 
     std::unique_ptr<detail::ConnectionState> m_state;
 };

@@ -4,7 +4,7 @@
 #include "clientstate.hpp"
 #include "miniasyncnetsockets/errors.hpp"
 
-#include <array>
+#include <mutex>
 #include <stdexcept>
 #include <sys/epoll.h>
 #include <utility>
@@ -15,8 +15,7 @@ namespace miniasyncnetsockets::detail
 ClientState::ClientState(
     mininetsockets::Endpoint endpoint, ClientCallbacks callbacks, ClientOptions options)
     : m_endpoint(std::move(endpoint)), m_callbacks(std::move(callbacks)),
-      m_options(options), m_codec(options.maxFrameSize),
-      m_writeQueue(options.maxPendingWriteBytes)
+      m_options(options)
 {
 }
 
@@ -72,16 +71,14 @@ void ClientState::stop() noexcept
 
 void ClientState::sendFrame(std::span<const std::byte> payload)
 {
-    if (!m_open || !m_connected) throw InvalidState("client is not connected");
-    if (payload.size() > m_options.maxFrameSize) {
-        throw FrameTooLarge("frame payload exceeds maxFrameSize");
-    }
-    if (!m_event) throw InvalidState("client event is not attached");
+    {
+        std::lock_guard lock(m_mutex);
 
-    // Enable EPOLLOUT when the queue transitions from empty to non-empty.
-    const bool wasEmpty = m_writeQueue.empty();
-    m_writeQueue.enqueue(payload);
-    if (wasEmpty) m_event->updateEvents(EPOLLIN | EPOLLOUT);
+        if (!m_open || !m_connected) throw InvalidState("client is not connected");
+        if (!m_connection) throw InvalidState("connection is not available");
+    }
+
+    m_connection->sendFrame(payload);
 }
 
 // Event-loop thread entry point.
@@ -95,7 +92,7 @@ void ClientState::run() noexcept
     cleanupAfterRun();
 }
 
-// Dispatches events: complete the connect first, then read/write.
+// Dispatches events: complete the connect first, then delegate to TcpConnection.
 void ClientState::onEvent()
 {
     if (!m_open) return;
@@ -104,9 +101,8 @@ void ClientState::onEvent()
         if (!m_connected) {
             finishConnect();
         }
-        if (m_open && m_connected) {
-            readAvailable();
-            if (m_open) flushWrites();
+        if (m_open && m_connected && m_connection) {
+            m_connection->onEvent();
         }
     } catch (...) {
         handleError(std::current_exception());
@@ -120,107 +116,69 @@ void ClientState::onConnectTimeout()
     }
 }
 
-// Completes the non-blocking connect and transitions to the Running state.
+// Completes the non-blocking connect, creates TcpConnection, and transitions to Running.
 void ClientState::finishConnect()
 {
     if (!m_pending) throw InvalidState("pending client stream is not available");
 
     auto stream = m_pending->finishConnect();
-    m_stream.emplace(std::move(stream));
+    const int fd = stream.fdView();
     m_pending.reset();
     if (m_connectTimer) {
         m_connectTimer->cancel();
         m_connectTimer.reset();
     }
+
+    // Reset the connect-phase event (EPOLLOUT on pending fd).
+    m_event.reset();
+
+    // Create TcpConnection from the established stream.
+    m_connection = std::unique_ptr<TcpConnection>(new TcpConnection(std::move(stream),
+        m_options.maxFrameSize, m_options.maxPendingWriteBytes, m_callbacks.onFrame,
+        m_callbacks.onClose, m_callbacks.onError));
+
+    // Create a new event (EPOLLIN) for the connected socket and attach to TcpConnection.
+    auto event = m_loop.createEvent(fd, EPOLLIN, miniruntime::event::EventType::SOCKET,
+        [this](int) { onEvent(); });
+    m_connection->attachEvent(std::move(event));
+
     m_connected = true;
     {
         std::lock_guard lock(m_mutex);
         m_lifecycle = Lifecycle::Running;
     }
 
-    if (m_callbacks.onConnected) m_callbacks.onConnected(*m_owner);
-}
-
-// Reads from the socket until blocked or EOF, feeding data into the frame codec.
-void ClientState::readAvailable()
-{
-    std::array<std::byte, readBufferSize> buffer{};
-    while (m_open) {
-        const auto result = m_stream->readNonBlocking(buffer);
-        if (result.bytes > buffer.size())
-            throw InvalidState("socket returned too many bytes");
-
-        if (result.bytes > 0) {
-            m_codec.consume(std::span<const std::byte>(buffer.data(), result.bytes),
-                [this](Frame frame) {
-                    if (m_callbacks.onFrame) {
-                        m_callbacks.onFrame(*m_owner, std::move(frame));
-                    }
-                });
-        }
-
-        if (result.status == mininetsockets::IoStatus::EndOfStream) {
-            m_codec.endOfStream();
-            close(nullptr);
-            return;
-        }
-        if (result.status == mininetsockets::IoStatus::Blocked || result.bytes == 0)
-            return;
-    }
-}
-
-// Drains the write queue to the socket and disables EPOLLOUT when empty.
-void ClientState::flushWrites()
-{
-    if (m_writeQueue.empty()) return;
-
-    const auto result = m_writeQueue.writeNonBlocking(
-        [this](std::span<std::byte> data) { return m_stream->writeNonBlocking(data); });
-
-    if (result.status == mininetsockets::IoStatus::EndOfStream) {
-        throw std::runtime_error("socket reached end of stream while writing");
-    }
-    if (m_writeQueue.empty() && m_event) m_event->updateEvents(EPOLLIN);
+    if (m_callbacks.onConnected) m_callbacks.onConnected(*m_connection);
 }
 
 void ClientState::handleError(std::exception_ptr error) noexcept { close(error); }
 
-// Safely invokes the onError callback; swallows any exception it throws.
-void ClientState::reportError(std::exception_ptr error) noexcept
-{
-    if (!m_callbacks.onError) return;
-    try {
-        m_callbacks.onError(*m_owner, error);
-    } catch (...) {
-    }
-}
-
-// Closes resources and invokes onClose if the connection was established.
+// Closes resources. Delegates to TcpConnection for connection-level cleanup.
 void ClientState::close(std::exception_ptr error) noexcept
 {
-    if (!m_open) return;
-    m_open = false;
-    if (error) reportError(error);
+    {
+        std::lock_guard lock(m_mutex);
 
-    if (m_connectTimer) {
-        m_connectTimer->cancel();
-        m_connectTimer.reset();
-    }
-    m_event.reset();
-    m_stream.reset();
-    m_pending.reset();
+        if (!m_open) return;
+        m_open = false;
 
-    // Notify onClose at most once, only if we were connected.
-    if (m_connected && !m_closeNotified) {
-        m_closeNotified = true;
-        if (m_callbacks.onClose) {
-            try {
-                m_callbacks.onClose(*m_owner);
-            } catch (...) {
-                reportError(std::current_exception());
+        if (m_connectTimer) {
+            m_connectTimer->cancel();
+            m_connectTimer.reset();
+        }
+        m_event.reset();
+        m_pending.reset();
+
+        if (m_connection) {
+            if (error) {
+                m_connection->handleError(error);
+            } else if (m_connected) {
+                m_connection->close();
             }
+            m_connection.reset();
         }
     }
+
     m_loop.stop();
 }
 

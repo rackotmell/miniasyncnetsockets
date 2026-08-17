@@ -7,8 +7,6 @@
 
 #include <chrono>
 #include <cstddef>
-#include <exception>
-#include <functional>
 #include <memory>
 #include <span>
 
@@ -38,16 +36,6 @@ struct ClientOptions {
 class TcpClient;
 
 /**
- * @brief Callback invoked when a frame is received from the server.
- */
-using ClientFrameHandler = std::function<void(TcpClient&, Frame)>;
-
-/**
- * @brief Callback invoked when a client-level error occurs.
- */
-using ClientErrorHandler = std::function<void(TcpClient&, std::exception_ptr)>;
-
-/**
  * @brief Callbacks for TcpClient events.
  * onConnected - connection is established.
  * onFrame - complete frame is received.
@@ -55,10 +43,10 @@ using ClientErrorHandler = std::function<void(TcpClient&, std::exception_ptr)>;
  * onError - error occurred.
  */
 struct ClientCallbacks {
-    std::function<void(TcpClient&)> onConnected;
-    ClientFrameHandler onFrame;
-    std::function<void(TcpClient&)> onClose;
-    ClientErrorHandler onError;
+    ConnectionHandler onConnected;
+    FrameHandler onFrame;
+    CloseHandler onClose;
+    ErrorHandler onError;
 };
 
 /**

@@ -49,6 +49,8 @@ void ConnectionState::handleError(TcpConnection& owner, std::exception_ptr error
 
 void ConnectionState::sendFrame(std::span<const std::byte> payload)
 {
+    std::lock_guard lock(m_mutex);
+
     if (!m_open) throw InvalidState("connection is closed");
     if (!m_event) throw InvalidState("connection event is not attached");
     if (payload.size() > m_maxFrameSize)
@@ -119,6 +121,8 @@ void ConnectionState::readAvailable(TcpConnection& owner)
 // Drains the write queue to the socket and disables EPOLLOUT when empty.
 void ConnectionState::flushWrites()
 {
+    std::lock_guard lock(m_mutex);
+
     if (m_writeQueue.empty()) return;
 
     const auto result = m_writeQueue.writeNonBlocking(
