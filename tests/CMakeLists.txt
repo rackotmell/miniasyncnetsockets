@@ -1,0 +1,3 @@
+add_executable(miniasyncnetsockets_header_test headercompilationtest.cpp)
+target_link_libraries(miniasyncnetsockets_header_test PRIVATE miniasyncnetsockets)
+add_test(NAME miniasyncnetsockets_header_test COMMAND miniasyncnetsockets_header_test)
