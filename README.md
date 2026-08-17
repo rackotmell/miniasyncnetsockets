@@ -2,7 +2,7 @@
 
 [README на русском](README_RU.md)
 
-> **Note:** Code was developed using agentic workflow with [opencode](https://opencode.ai), model GPT 5.6 Luna, `cpp-core-guidelines` skill, and instructions from `AGENTS.md`.
+> **Note:** Code was developed using agentic workflow with [opencode](https://opencode.ai), model GPT 5.6 Luna, `cpp-core-guidelines` skill, and instructions from `AGENTS.md`. All code has been manually reviewed.
 
 A framed TCP server and client library for Linux, built on top of [miniruntime](https://github.com/rackotmell/miniruntime) (async task execution) and [mininetsockets](https://github.com/rackotmell/mininetsockets) (TCP operations).
 
@@ -26,7 +26,7 @@ A framed TCP server and client library for Linux, built on top of [miniruntime](
 
 ## Technologies
 
-- C++20 (concepts, ranges, `std::format`)
+- C++20 (`std::format`, `std::span`)
 - CMake 3.20+
 - Linux-only (epoll, eventfd, timerfd)
 - Dependencies: [miniruntime](https://github.com/rackotmell/miniruntime), [mininetsockets](https://github.com/rackotmell/mininetsockets)

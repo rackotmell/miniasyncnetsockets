@@ -2,7 +2,7 @@
 
 [README in English](README.md)
 
-> **Note:** Код был написан с использованием agentic workflow с [opencode](https://opencode.ai), модель GPT 5.6 Luna, навык `cpp-core-guidelines`, и инструкции из `AGENTS.md`.
+> **Note:** Код был написан с использованием agentic workflow с [opencode](https://opencode.ai), модель GPT 5.6 Luna, навык `cpp-core-guidelines`, и инструкции из `AGENTS.md`. Ревью кода было выполнено вручную.
 
 Библиотека фреймированного TCP-сервера и клиента для Linux, построенная на базе [miniruntime](https://github.com/rackotmell/miniruntime) (асинхронное выполнение задач) и [mininetsockets](https://github.com/rackotmell/mininetsockets) (TCP-операции).
 
@@ -26,7 +26,7 @@
 
 ## Технологии
 
-- C++20 (concepts, ranges, `std::format`)
+- C++20 (`std::format`, `std::span`)
 - CMake 3.20+
 - Только Linux (epoll, eventfd, timerfd)
 - Зависимости: [miniruntime](https://github.com/rackotmell/miniruntime), [mininetsockets](https://github.com/rackotmell/mininetsockets)
