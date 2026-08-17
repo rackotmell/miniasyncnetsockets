@@ -104,7 +104,6 @@ void ConnectionState::readAvailable(TcpConnection& owner)
                 [this, &owner](Frame frame) {
                     if (m_onFrame) m_onFrame(owner, std::move(frame));
                 });
-            if (!m_open) return;
         }
 
         if (result.status == mininetsockets::IoStatus::EndOfStream) {

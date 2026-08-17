@@ -157,7 +157,6 @@ void ClientState::readAvailable()
                         m_callbacks.onFrame(*m_owner, std::move(frame));
                     }
                 });
-            if (!m_open) return;
         }
 
         if (result.status == mininetsockets::IoStatus::EndOfStream) {
