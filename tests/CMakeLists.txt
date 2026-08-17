@@ -3,6 +3,8 @@ target_link_libraries(miniasyncnetsockets_header_test PRIVATE miniasyncnetsocket
 add_test(NAME miniasyncnetsockets_header_test COMMAND miniasyncnetsockets_header_test)
 
 include(FetchContent)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+set(INSTALL_GMOCK OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git

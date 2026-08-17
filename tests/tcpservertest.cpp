@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <future>
 #include <mutex>
+#include <stdexcept>
 #include <span>
 #include <string_view>
 #include <thread>
@@ -61,6 +62,18 @@ Frame readFrame(TcpStream& stream)
     Frame payload(size);
     stream.readExact(payload);
     return payload;
+}
+
+template<typename ErrorType>
+bool isError(std::exception_ptr error)
+{
+    try {
+        std::rethrow_exception(error);
+    } catch (const ErrorType&) {
+        return true;
+    } catch (...) {
+        return false;
+    }
 }
 
 miniasyncnetsockets::ServerCallbacks makeEchoCallbacks()
@@ -200,4 +213,175 @@ TEST(TcpServerTest, StopFromFrameCallbackDoesNotJoinCurrentThread)
     ASSERT_EQ(closeFuture.wait_for(1s), std::future_status::ready);
     server.stop();
     EXPECT_FALSE(server.isRunning());
+}
+
+TEST(TcpServerTest, ReportsOnConnectionCallbackException)
+{
+    std::promise<std::exception_ptr> errorPromise;
+    auto errorFuture = errorPromise.get_future();
+    std::promise<void> closePromise;
+    auto closeFuture = closePromise.get_future();
+    std::atomic<bool> errorReported{false};
+    std::atomic<bool> closed{false};
+
+    miniasyncnetsockets::ServerCallbacks callbacks;
+    callbacks.onConnection = [](miniasyncnetsockets::TcpConnection&) {
+        throw std::runtime_error("onConnection failure");
+    };
+    callbacks.onError = [&errorPromise, &errorReported](miniasyncnetsockets::TcpConnection&,
+                                                         std::exception_ptr error) {
+        if (!errorReported.exchange(true)) errorPromise.set_value(error);
+    };
+    callbacks.onClose = [&closePromise, &closed](const miniasyncnetsockets::TcpConnection&) {
+        if (!closed.exchange(true)) closePromise.set_value();
+    };
+
+    TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks));
+    server.start();
+    auto client = TcpStream::connect(server.localEndpoint());
+
+    ASSERT_EQ(errorFuture.wait_for(1s), std::future_status::ready);
+    ASSERT_EQ(closeFuture.wait_for(1s), std::future_status::ready);
+    EXPECT_FALSE(isError<miniasyncnetsockets::ProtocolError>(errorFuture.get()));
+    server.stop();
+}
+
+TEST(TcpServerTest, ReportsOnFrameCallbackException)
+{
+    std::promise<std::exception_ptr> errorPromise;
+    auto errorFuture = errorPromise.get_future();
+    std::promise<void> closePromise;
+    auto closeFuture = closePromise.get_future();
+    std::atomic<bool> errorReported{false};
+    std::atomic<bool> closed{false};
+
+    miniasyncnetsockets::ServerCallbacks callbacks;
+    callbacks.onFrame = [](miniasyncnetsockets::TcpConnection&, Frame) {
+        throw std::runtime_error("onFrame failure");
+    };
+    callbacks.onError = [&errorPromise, &errorReported](miniasyncnetsockets::TcpConnection&,
+                                                         std::exception_ptr error) {
+        if (!errorReported.exchange(true)) errorPromise.set_value(error);
+    };
+    callbacks.onClose = [&closePromise, &closed](const miniasyncnetsockets::TcpConnection&) {
+        if (!closed.exchange(true)) closePromise.set_value();
+    };
+
+    TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks));
+    server.start();
+    auto client = TcpStream::connect(server.localEndpoint());
+    auto outgoing = serializedFrame("failure");
+    client.writeAll(outgoing);
+
+    ASSERT_EQ(errorFuture.wait_for(1s), std::future_status::ready);
+    ASSERT_EQ(closeFuture.wait_for(1s), std::future_status::ready);
+    EXPECT_FALSE(isError<miniasyncnetsockets::ProtocolError>(errorFuture.get()));
+    server.stop();
+}
+
+TEST(TcpServerTest, ReportsOnCloseExceptionEvenWhenOnErrorThrows)
+{
+    std::promise<void> errorPromise;
+    auto errorFuture = errorPromise.get_future();
+    std::atomic<bool> errorReported{false};
+
+    miniasyncnetsockets::ServerCallbacks callbacks;
+    callbacks.onFrame = [](miniasyncnetsockets::TcpConnection& connection, Frame) {
+        connection.close();
+    };
+    callbacks.onClose = [](const miniasyncnetsockets::TcpConnection&) {
+        throw std::runtime_error("onClose failure");
+    };
+    callbacks.onError = [&errorPromise, &errorReported](miniasyncnetsockets::TcpConnection&,
+                                                         std::exception_ptr) {
+        if (!errorReported.exchange(true)) errorPromise.set_value();
+        throw std::runtime_error("onError failure");
+    };
+
+    TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks));
+    server.start();
+    auto client = TcpStream::connect(server.localEndpoint());
+    auto outgoing = serializedFrame("close");
+    client.writeAll(outgoing);
+
+    ASSERT_EQ(errorFuture.wait_for(1s), std::future_status::ready);
+    server.stop();
+}
+
+TEST(TcpServerTest, RejectsConnectionsAboveLimit)
+{
+    std::promise<void> firstConnectionPromise;
+    auto firstConnectionFuture = firstConnectionPromise.get_future();
+    std::atomic<int> connectionCount{0};
+
+    miniasyncnetsockets::ServerCallbacks callbacks;
+    callbacks.onConnection = [&firstConnectionPromise, &connectionCount](
+                                 miniasyncnetsockets::TcpConnection&) {
+        if (connectionCount.fetch_add(1) == 0) firstConnectionPromise.set_value();
+    };
+    miniasyncnetsockets::ServerOptions options;
+    options.maxConnections = 1;
+    TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks), options);
+    server.start();
+    auto firstClient = TcpStream::connect(server.localEndpoint());
+    ASSERT_EQ(firstConnectionFuture.wait_for(1s), std::future_status::ready);
+    auto secondClient = TcpStream::connect(server.localEndpoint());
+    std::this_thread::sleep_for(20ms);
+
+    EXPECT_EQ(connectionCount.load(), 1);
+    server.stop();
+}
+
+TEST(TcpServerTest, WriteQueueOverflowIsReported)
+{
+    std::promise<std::exception_ptr> errorPromise;
+    auto errorFuture = errorPromise.get_future();
+    std::promise<void> closePromise;
+    auto closeFuture = closePromise.get_future();
+    std::atomic<bool> errorReported{false};
+    std::atomic<bool> closed{false};
+
+    miniasyncnetsockets::ServerCallbacks callbacks;
+    callbacks.onFrame = [](miniasyncnetsockets::TcpConnection& connection, Frame frame) {
+        connection.sendFrame(frame);
+    };
+    callbacks.onError = [&errorPromise, &errorReported](miniasyncnetsockets::TcpConnection&,
+                                                         std::exception_ptr error) {
+        if (!errorReported.exchange(true)) errorPromise.set_value(error);
+    };
+    callbacks.onClose = [&closePromise, &closed](const miniasyncnetsockets::TcpConnection&) {
+        if (!closed.exchange(true)) closePromise.set_value();
+    };
+    miniasyncnetsockets::ServerOptions options;
+    options.maxPendingWriteBytes = 4;
+    TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks), options);
+    server.start();
+    auto client = TcpStream::connect(server.localEndpoint());
+    auto outgoing = serializedFrame("x");
+    client.writeAll(outgoing);
+
+    ASSERT_EQ(errorFuture.wait_for(1s), std::future_status::ready);
+    ASSERT_EQ(closeFuture.wait_for(1s), std::future_status::ready);
+    EXPECT_TRUE(isError<miniasyncnetsockets::WriteQueueOverflow>(errorFuture.get()));
+    server.stop();
+}
+
+TEST(TcpServerTest, DestructorClosesActiveConnections)
+{
+    std::promise<void> closePromise;
+    auto closeFuture = closePromise.get_future();
+    std::atomic<bool> closed{false};
+
+    {
+        miniasyncnetsockets::ServerCallbacks callbacks;
+        callbacks.onClose = [&closePromise, &closed](const miniasyncnetsockets::TcpConnection&) {
+            if (!closed.exchange(true)) closePromise.set_value();
+        };
+        TcpServer server(mininetsockets::Endpoint::ipv4Any(0), std::move(callbacks));
+        server.start();
+        auto client = TcpStream::connect(server.localEndpoint());
+        std::this_thread::sleep_for(10ms);
+    }
+
+    ASSERT_EQ(closeFuture.wait_for(1s), std::future_status::ready);
 }
