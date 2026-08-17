@@ -68,7 +68,7 @@ cmake -B build && cmake --build build
 | Option | Default | Description |
 |--------|---------|-------------|
 | `MINIASYNCNETSOCKETS_BUILD_TESTS` | ON | Build unit tests |
-| `MINIASYNCNETSOCKETS_BUILD_EXAMPLES` | OFF | Build example programs |
+| `MINIASYNCNETSOCKETS_BUILD_EXAMPLES` | ON | Build examples |
 | `ENABLE_ASAN_UBSAN` | OFF | Build with AddressSanitizer + UndefinedBehaviorSanitizer |
 | `ENABLE_TSAN` | OFF | Build with ThreadSanitizer |
 
@@ -97,8 +97,50 @@ ctest --test-dir build --output-on-failure
 Listens on port 12345, accepts clients, and echoes all received frames back.
 
 ```bash
+cmake -B build -DMINIASYNCNETSOCKETS_BUILD_EXAMPLES=ON && cmake --build build
 ./build/examples/framed-echoserver
 ```
+
+### Framed Terminal Client
+
+Connects to the echo server, reads lines from stdin, sends them as frames, and prints received frames to stdout. Type `quit` or `exit` to disconnect.
+
+```bash
+# In another terminal, while the server is running:
+./build/examples/framed-terminalclient
+```
+
+The client accepts an optional port argument (default: 12345):
+
+```bash
+./build/examples/framed-terminalclient 8080
+```
+
+### Server and Client Interaction
+
+The echo server and terminal client demonstrate a complete framed TCP exchange:
+
+1. The server listens on a port and accepts incoming connections.
+2. The client connects and sends each stdin line as a framed message (4-byte length prefix + payload).
+3. The server's `onFrame` callback receives the frame and echoes it back via `sendFrame`.
+4. The client's `onFrame` callback prints the echoed frame to stdout.
+
+```
+Client                          Server
+  |                               |
+  |--- TCP connect -------------->|
+  |<-- accept --------------------|
+  |                               |
+  |--- frame("hello") ----------->|
+  |<-- frame("hello") ------------|  (echo)
+  |                               |
+  |--- frame("world") ----------->|
+  |<-- frame("world") ------------|  (echo)
+  |                               |
+  |--- disconnect --------------->|
+```
+
+Callbacks provide the `TcpConnection` reference, allowing the handler to inspect endpoints, close the connection, or send additional frames.
 
 ## Submodule Patches
 

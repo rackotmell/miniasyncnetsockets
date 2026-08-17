@@ -5,7 +5,7 @@ project(miniasyncnetsockets VERSION 0.1.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 
 option(MINIASYNCNETSOCKETS_BUILD_TESTS "Build miniasyncnetsockets tests" ON)
-option(MINIASYNCNETSOCKETS_BUILD_EXAMPLES "Build miniasyncnetsockets examples" OFF)
+option(MINIASYNCNETSOCKETS_BUILD_EXAMPLES "Build miniasyncnetsockets examples" ON)
 option(ENABLE_ASAN_UBSAN "Build with ASAN+UBSAN sanitizers" OFF)
 option(ENABLE_TSAN "Build with TSAN sanitizer" OFF)
 

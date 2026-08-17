@@ -68,7 +68,7 @@ cmake -B build && cmake --build build
 | Опция | По умолчанию | Описание |
 |-------|--------------|----------|
 | `MINIASYNCNETSOCKETS_BUILD_TESTS` | ON | Сборка юнит-тестов |
-| `MINIASYNCNETSOCKETS_BUILD_EXAMPLES` | OFF | Сборка примеров программ |
+| `MINIASYNCNETSOCKETS_BUILD_EXAMPLES` | ON | Сборка примеров |
 | `ENABLE_ASAN_UBSAN` | OFF | Сборка с AddressSanitizer + UndefinedBehaviorSanitizer |
 | `ENABLE_TSAN` | OFF | Сборка с ThreadSanitizer |
 
@@ -97,8 +97,50 @@ ctest --test-dir build --output-on-failure
 Слушает на порту 12345, принимает клиентов и эхом возвращает все полученные фреймы.
 
 ```bash
+cmake -B build -DMINIASYNCNETSOCKETS_BUILD_EXAMPLES=ON && cmake --build build
 ./build/examples/framed-echoserver
 ```
+
+### Фреймированный Terminal-клиент
+
+Подключается к echo-серверу, читает строки из stdin, отправляет их как фреймы и выводит полученные фреймы в stdout. Введите `quit` или `exit` для отключения.
+
+```bash
+# В другом терминале, пока сервер запущен:
+./build/examples/framed-terminalclient
+```
+
+Клиент принимает необязательный аргумент порта (по умолчанию: 12345):
+
+```bash
+./build/examples/framed-terminalclient 8080
+```
+
+### Взаимодействие сервера и клиента
+
+Echo-сервер и terminal-клиент демонстрируют полный обмен фреймированными TCP-данными:
+
+1. Сервер слушает порт и принимает входящие соединения.
+2. Клиент подключается и отправляет каждую строку из stdin как фреймированные сообщение (4-байтовый header + payload).
+3. Колбэк `onFrame` сервера получает фрейм и возвращает его обратно через `sendFrame`.
+4. Колбэк `onFrame` клиента выводит полученный фрейм в stdout.
+
+```
+Клиент                          Сервер
+  |                               |
+  |--- TCP connect -------------->|
+  |<-- accept --------------------|
+  |                               |
+  |--- frame("hello") ----------->|
+  |<-- frame("hello") ------------|  (эхо)
+  |                               |
+  |--- frame("world") ----------->|
+  |<-- frame("world") ------------|  (эхо)
+  |                               |
+  |--- disconnect --------------->|
+```
+
+Колбэки предоставляют ссылку на `TcpConnection`, что позволяет обработчику проверять эндпоинты, закрывать соединение или отправлять дополнительные фреймы.
 
 ## Патчи субмодулей
 
