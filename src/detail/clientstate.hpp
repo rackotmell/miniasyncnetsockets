@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <array>
-#include <condition_variable>
 #include <cstddef>
 #include <exception>
 #include <mutex>
@@ -12,12 +10,12 @@
 #include <thread>
 
 #include "framecodec.hpp"
-#include "writequeue.hpp"
 #include "miniasyncnetsockets/tcpclient.hpp"
-#include "miniruntime/event/eventloop.h"
-#include "miniruntime/event/handle.h"
 #include "mininetsockets/pendingtcpstream.hpp"
 #include "mininetsockets/tcpstream.hpp"
+#include "miniruntime/event/eventloop.h"
+#include "miniruntime/event/handle.h"
+#include "writequeue.hpp"
 
 namespace miniasyncnetsockets::detail
 {
@@ -29,23 +27,23 @@ namespace miniasyncnetsockets::detail
 class ClientState
 {
 public:
-    ClientState(mininetsockets::Endpoint endpoint,
-                ClientCallbacks callbacks,
-                ClientOptions options);
+    ClientState(mininetsockets::Endpoint endpoint, ClientCallbacks callbacks,
+        ClientOptions options);
     ~ClientState() noexcept;
 
     // Initiates non-blocking connect and starts the event-loop thread.
     void start(TcpClient& owner);
 
-    // Stops the event loop and joins the thread.
+    // Requests event-loop shutdown. The destructor joins the thread.
     void stop() noexcept;
 
     // Enqueues a frame for sending if connected.
     void sendFrame(std::span<const std::byte> payload);
 
 private:
-    enum class Lifecycle
-    {
+    static constexpr std::size_t readBufferSize{64U * 1024U};
+
+    enum class Lifecycle {
         Constructed, ///< Not yet started.
         Connecting,  ///< Non-blocking connect in progress.
         Running,     ///< Connected and processing events.
@@ -82,26 +80,29 @@ private:
     // Post-loop cleanup: closes resources and notifies waiting stop() callers.
     void cleanupAfterRun() noexcept;
 
+    std::thread m_thread;
     mutable std::mutex m_mutex;
-    std::condition_variable m_stateChanged;
     miniruntime::event::EventLoop m_loop;
+
     mininetsockets::Endpoint m_endpoint;
     ClientCallbacks m_callbacks;
     ClientOptions m_options;
+
     FrameCodec m_codec;
     WriteQueue m_writeQueue;
-    std::optional<mininetsockets::PendingTcpStream> m_pending; ///< Pending non-blocking connect.
-    std::optional<mininetsockets::TcpStream> m_stream;         ///< Established connection.
+
+    std::optional<mininetsockets::PendingTcpStream> m_pending;
+    std::optional<mininetsockets::TcpStream> m_stream;
     std::optional<miniruntime::event::EventHandle> m_event;
-    std::optional<miniruntime::event::TimerHandle> m_connectTimer; ///< Connect timeout timer.
-    std::thread m_thread;
-    std::thread::id m_loopThreadId;
-    TcpClient* m_owner{nullptr};        ///< Back-pointer to the public TcpClient.
+    std::optional<miniruntime::event::TimerHandle> m_connectTimer;
+
+    TcpClient* m_owner{nullptr}; ///< Back-pointer to the public TcpClient.
+
     Lifecycle m_lifecycle{Lifecycle::Constructed};
-    bool m_connected{false};            ///< True after finishConnect() succeeds.
-    bool m_open{true};                  ///< False after close() has been called.
-    bool m_closeNotified{false};        ///< Ensures onClose is called at most once.
-    bool m_joinInProgress{false};       ///< Guards against concurrent stop() calls.
+
+    bool m_connected{false};      ///< True after finishConnect() succeeds.
+    bool m_open{true};            ///< False after close() has been called.
+    bool m_closeNotified{false};  ///< Ensures onClose is called at most once.
 };
 
 } // namespace miniasyncnetsockets::detail

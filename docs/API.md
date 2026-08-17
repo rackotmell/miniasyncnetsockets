@@ -287,5 +287,7 @@ public:
 ошибка callback передается через `onError`, после чего клиент закрывается.
 
 Клиент владеет собственным `EventLoop` и event-loop thread. `sendFrame()` и
-callback-и клиента выполняются в event-loop thread; `stop()` можно вызвать из
-любого потока. Безопасная cross-thread отправка в первой реализации не поддерживается.
+callback-и клиента выполняются в event-loop thread; `stop()` потокобезопасен и
+только запрашивает остановку event loop. Деструктор дожидается завершения
+event-loop thread через `join()`. Пользователь должен избегать уничтожения
+`TcpClient` из callback event loop.

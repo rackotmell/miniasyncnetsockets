@@ -6,24 +6,25 @@
 
 #include <array>
 #include <stdexcept>
-#include <utility>
 #include <sys/epoll.h>
+#include <utility>
 
 namespace miniasyncnetsockets::detail
 {
 
-ClientState::ClientState(mininetsockets::Endpoint endpoint,
-                         ClientCallbacks callbacks,
-                         ClientOptions options)
-    : m_endpoint(std::move(endpoint)),
-      m_callbacks(std::move(callbacks)),
-      m_options(options),
-      m_codec(options.maxFrameSize),
+ClientState::ClientState(
+    mininetsockets::Endpoint endpoint, ClientCallbacks callbacks, ClientOptions options)
+    : m_endpoint(std::move(endpoint)), m_callbacks(std::move(callbacks)),
+      m_options(options), m_codec(options.maxFrameSize),
       m_writeQueue(options.maxPendingWriteBytes)
 {
 }
 
-ClientState::~ClientState() noexcept { stop(); }
+ClientState::~ClientState() noexcept
+{
+    stop();
+    if (m_thread.joinable()) m_thread.join();
+}
 
 // Initiates a non-blocking connect, registers events, and starts the event-loop thread.
 void ClientState::start(TcpClient& owner)
@@ -40,15 +41,16 @@ void ClientState::start(TcpClient& owner)
     try {
         // Begin non-blocking connect.
         m_pending.emplace(mininetsockets::PendingTcpStream::connect(m_endpoint));
-        auto event = m_loop.createEvent(
-            m_pending->fdView(), EPOLLOUT, miniruntime::event::EventType::SOCKET, [this](int) {
-                onEvent();
-            });
+
+        auto event = m_loop.createEvent(m_pending->fdView(), EPOLLOUT,
+            miniruntime::event::EventType::SOCKET, [this](int) { onEvent(); });
+
         m_event.emplace(std::move(event));
+
         // Arm the connect timeout timer.
-        m_connectTimer.emplace(m_loop.createTimer(m_options.connectTimeout, [this] {
-            onConnectTimeout();
-        }));
+        m_connectTimer.emplace(
+            m_loop.createTimer(m_options.connectTimeout, [this] { onConnectTimeout(); }));
+
         m_thread = std::thread([this] { run(); });
     } catch (...) {
         m_connectTimer.reset();
@@ -62,27 +64,10 @@ void ClientState::start(TcpClient& owner)
 
 void ClientState::stop() noexcept
 {
-    std::unique_lock lock(m_mutex);
+    std::lock_guard lock(m_mutex);
     if (m_lifecycle == Lifecycle::Constructed) return;
-
-    // Avoid self-join if called from the loop thread.
-    const bool calledFromLoopThread = std::this_thread::get_id() == m_loopThreadId;
+    m_lifecycle = Lifecycle::Stopped;
     m_loop.stop();
-    if (calledFromLoopThread || !m_thread.joinable()) return;
-
-    // If another thread is already joining, wait for it to finish.
-    if (m_joinInProgress) {
-        m_stateChanged.wait(lock, [this] { return !m_joinInProgress; });
-        return;
-    }
-
-    // Join the event-loop thread outside the lock.
-    m_joinInProgress = true;
-    lock.unlock();
-    m_thread.join();
-    lock.lock();
-    m_joinInProgress = false;
-    m_stateChanged.notify_all();
 }
 
 void ClientState::sendFrame(std::span<const std::byte> payload)
@@ -99,14 +84,9 @@ void ClientState::sendFrame(std::span<const std::byte> payload)
     if (wasEmpty) m_event->updateEvents(EPOLLIN | EPOLLOUT);
 }
 
-// Event-loop thread entry: records thread ID, runs the loop, then cleans up.
+// Event-loop thread entry point.
 void ClientState::run() noexcept
 {
-    {
-        std::lock_guard lock(m_mutex);
-        m_loopThreadId = std::this_thread::get_id();
-    }
-
     try {
         m_loop.run();
     } catch (...) {
@@ -164,18 +144,19 @@ void ClientState::finishConnect()
 // Reads from the socket until blocked or EOF, feeding data into the frame codec.
 void ClientState::readAvailable()
 {
-    std::array<std::byte, 64U * 1024U> buffer{};
+    std::array<std::byte, readBufferSize> buffer{};
     while (m_open) {
         const auto result = m_stream->readNonBlocking(buffer);
-        if (result.bytes > buffer.size()) throw InvalidState("socket returned too many bytes");
+        if (result.bytes > buffer.size())
+            throw InvalidState("socket returned too many bytes");
 
         if (result.bytes > 0) {
             m_codec.consume(std::span<const std::byte>(buffer.data(), result.bytes),
-                            [this](Frame frame) {
-                                if (m_callbacks.onFrame) {
-                                    m_callbacks.onFrame(*m_owner, std::move(frame));
-                                }
-                            });
+                [this](Frame frame) {
+                    if (m_callbacks.onFrame) {
+                        m_callbacks.onFrame(*m_owner, std::move(frame));
+                    }
+                });
             if (!m_open) return;
         }
 
@@ -184,7 +165,8 @@ void ClientState::readAvailable()
             close(nullptr);
             return;
         }
-        if (result.status == mininetsockets::IoStatus::Blocked || result.bytes == 0) return;
+        if (result.status == mininetsockets::IoStatus::Blocked || result.bytes == 0)
+            return;
     }
 }
 
@@ -195,16 +177,14 @@ void ClientState::flushWrites()
 
     const auto result = m_writeQueue.writeNonBlocking(
         [this](std::span<std::byte> data) { return m_stream->writeNonBlocking(data); });
+
     if (result.status == mininetsockets::IoStatus::EndOfStream) {
         throw std::runtime_error("socket reached end of stream while writing");
     }
     if (m_writeQueue.empty() && m_event) m_event->updateEvents(EPOLLIN);
 }
 
-void ClientState::handleError(std::exception_ptr error) noexcept
-{
-    close(error);
-}
+void ClientState::handleError(std::exception_ptr error) noexcept { close(error); }
 
 // Safely invokes the onError callback; swallows any exception it throws.
 void ClientState::reportError(std::exception_ptr error) noexcept
@@ -245,16 +225,7 @@ void ClientState::close(std::exception_ptr error) noexcept
     m_loop.stop();
 }
 
-// Post-loop cleanup: closes resources and notifies waiting stop() callers.
-void ClientState::cleanupAfterRun() noexcept
-{
-    close(nullptr);
-    {
-        std::lock_guard lock(m_mutex);
-        m_loopThreadId = {};
-        m_lifecycle = Lifecycle::Stopped;
-    }
-    m_stateChanged.notify_all();
-}
+// Post-loop cleanup: closes resources.
+void ClientState::cleanupAfterRun() noexcept { close(nullptr); }
 
 } // namespace miniasyncnetsockets::detail

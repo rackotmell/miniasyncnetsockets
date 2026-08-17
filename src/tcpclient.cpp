@@ -12,12 +12,10 @@ namespace miniasyncnetsockets
 {
 
 // Delegates to ClientState constructor.
-TcpClient::TcpClient(mininetsockets::Endpoint endpoint,
-                     ClientCallbacks callbacks,
-                     ClientOptions options)
-    : m_state(std::make_unique<detail::ClientState>(std::move(endpoint),
-                                                    std::move(callbacks),
-                                                    options))
+TcpClient::TcpClient(
+    mininetsockets::Endpoint endpoint, ClientCallbacks callbacks, ClientOptions options)
+    : m_state(std::make_unique<detail::ClientState>(
+          std::move(endpoint), std::move(callbacks), options))
 {
 }
 

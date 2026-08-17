@@ -25,12 +25,14 @@ class ClientState;
 
 /**
  * @brief Configuration options for TcpClient.
+ * maxFrameSize - Maximum frame payload size in bytes.
+ * maxPendingWriteBytes - Maximum queued write bytes.
+ * connectTimeout - Non-blocking connect timeout.
  */
-struct ClientOptions
-{
-    std::size_t maxFrameSize{1024U * 1024U};              ///< Maximum frame payload size in bytes.
-    std::size_t maxPendingWriteBytes{4U * 1024U * 1024U}; ///< Maximum queued write bytes.
-    std::chrono::milliseconds connectTimeout{10'000};     ///< Non-blocking connect timeout.
+struct ClientOptions {
+    std::size_t maxFrameSize{1024U * 1024U};
+    std::size_t maxPendingWriteBytes{4U * 1024U * 1024U};
+    std::chrono::milliseconds connectTimeout{10'000};
 };
 
 class TcpClient;
@@ -47,13 +49,16 @@ using ClientErrorHandler = std::function<void(TcpClient&, std::exception_ptr)>;
 
 /**
  * @brief Callbacks for TcpClient events.
+ * onConnected - connection is established.
+ * onFrame - complete frame is received.
+ * onClose - connection is closed.
+ * onError - error occurred.
  */
-struct ClientCallbacks
-{
-    std::function<void(TcpClient&)> onConnected; ///< Called when the connection is established.
-    ClientFrameHandler onFrame;                  ///< Called when a complete frame is received.
-    std::function<void(TcpClient&)> onClose;     ///< Called when the connection is closed.
-    ClientErrorHandler onError;                  ///< Called when an error occurs.
+struct ClientCallbacks {
+    std::function<void(TcpClient&)> onConnected;
+    ClientFrameHandler onFrame;
+    std::function<void(TcpClient&)> onClose;
+    ClientErrorHandler onError;
 };
 
 /**
@@ -72,9 +77,8 @@ public:
      * @param callbacks User-provided event callbacks.
      * @param options Optional client configuration.
      */
-    TcpClient(mininetsockets::Endpoint endpoint,
-              ClientCallbacks callbacks,
-              ClientOptions options = {});
+    TcpClient(mininetsockets::Endpoint endpoint, ClientCallbacks callbacks,
+        ClientOptions options = {});
     ~TcpClient() noexcept;
 
     TcpClient(const TcpClient&) = delete;
@@ -83,8 +87,10 @@ public:
     TcpClient& operator=(TcpClient&&) = delete;
 
     /**
-     * @brief Starts the client: initiates a non-blocking connect and spawns the event-loop thread.
-     * @throws InvalidState if the client has already been started or connectTimeout is non-positive.
+     * @brief Starts the client: initiates a non-blocking connect and spawns the
+     * event-loop thread.
+     * @throws InvalidState if the client has already been started or connectTimeout is
+     * non-positive.
      */
     void start();
 
