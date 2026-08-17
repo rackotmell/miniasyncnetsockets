@@ -1,3 +1,12 @@
+# miniasyncnetsockets
+
+Framed TCP server and client library combining non-blocking TCP sockets
+`mininetsockets` with epoll-based runtime `miniruntime`.
+
+Protocol: `4-byte big-endian payload length`.
+
+Patches are used for submodule modifications.
+
 # CRITICAL RULES - MUST FOLLOW
 
 - Follow KISS (Keep It Simple, Stupid)
@@ -10,7 +19,7 @@
 	- Add complexity only when required
 	- Start simple, refactor when needed
 
-- Follow cpp-core-guidelines (except snake case, use pascal case)
+- Follow cpp-core-guidelines (except snake case, use camel case)
 
 - After implementing the feature (logical part of plan), check the build.
 - After implementing the feature (logical part of plan), perform a self‑review.
