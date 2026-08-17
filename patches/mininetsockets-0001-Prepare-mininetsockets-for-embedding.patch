@@ -1,0 +1,82 @@
+From 99ba0e1acaabf586cf47672b7580b590d10f69a1 Mon Sep 17 00:00:00 2001
+From: Vladimir Linkov <rackotmell@gmail.com>
+Date: Mon, 17 Aug 2026 11:37:43 +0300
+Subject: [PATCH] Prepare mininetsockets for embedding
+
+---
+ CMakeLists.txt          | 14 +++++++-------
+ examples/CMakeLists.txt |  4 ++--
+ tests/CMakeLists.txt    |  6 +++---
+ 3 files changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 93049fe..50dbf0b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -5,9 +5,8 @@ project(mininetsockets VERSION 0.1.0 LANGUAGES C CXX)
+ option(ENABLE_TESTS "Build sources with tests" ON)
+ option(ENABLE_EXAMPLES "Build sources with examples" ON)
+ 
+-add_library(options INTERFACE)
+-target_compile_options(options INTERFACE -Wall -Wextra -Werror -Wpedantic -std=gnu++20)
+-target_compile_features(options INTERFACE cxx_std_20)
++add_library(mininetsockets_options INTERFACE)
++target_compile_options(mininetsockets_options INTERFACE -Wall -Wextra -Werror -Wpedantic)
+ 
+ add_library(mininetsockets STATIC
+     src/endpoint.cpp
+@@ -18,12 +17,14 @@ add_library(mininetsockets STATIC
+     src/detail/sockethandle.cpp
+     src/detail/socketfunctions.cpp
+ )
+-target_link_libraries(mininetsockets PRIVATE options)
++target_compile_features(mininetsockets PUBLIC cxx_std_20)
++target_link_libraries(mininetsockets PRIVATE mininetsockets_options)
+ target_include_directories(mininetsockets
+     PUBLIC
+-        ${CMAKE_SOURCE_DIR}/include
++        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
++        $<INSTALL_INTERFACE:include>
+     PRIVATE
+-        ${CMAKE_SOURCE_DIR}/src/detail
++        ${CMAKE_CURRENT_SOURCE_DIR}/src/detail
+ )
+ 
+ if (ENABLE_TESTS)
+@@ -34,4 +35,3 @@ endif()
+ if (ENABLE_EXAMPLES)
+     add_subdirectory(examples)
+ endif()
+-
+diff --git a/examples/CMakeLists.txt b/examples/CMakeLists.txt
+index ad66cd8..7f048a8 100644
+--- a/examples/CMakeLists.txt
++++ b/examples/CMakeLists.txt
+@@ -5,5 +5,5 @@ set(EXAMPLES
+ 
+ foreach(example IN LISTS EXAMPLES)
+     add_executable(${example} ${example}.cpp)
+-    target_link_libraries(${example} PRIVATE options mininetsockets)
+-endforeach()
+\ No newline at end of file
++    target_link_libraries(${example} PRIVATE mininetsockets_options mininetsockets)
++endforeach()
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 1566125..091b056 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -8,7 +8,7 @@ set(TESTS
+ 
+ foreach(test IN LISTS TESTS)
+     add_executable(${test} ${test}.cpp)
+-    target_link_libraries(${test} PRIVATE options mininetsockets)
+-    target_include_directories(${test} PRIVATE ${CMAKE_SOURCE_DIR}/src/detail)
++    target_link_libraries(${test} PRIVATE mininetsockets_options mininetsockets)
++    target_include_directories(${test} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src/detail)
+     add_test(NAME ${test} COMMAND ${test})
+-endforeach()
+\ No newline at end of file
++endforeach()
+-- 
+2.55.0
+

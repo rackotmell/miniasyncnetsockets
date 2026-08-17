@@ -1,0 +1,325 @@
+From 42af18161c68c650a46b92b8b12ed0e5aebf2a0e Mon Sep 17 00:00:00 2001
+From: Vladimir Linkov <rackotmell@gmail.com>
+Date: Mon, 17 Aug 2026 11:36:50 +0300
+Subject: [PATCH] Add event mask updates and loop wakeup
+
+---
+ include/miniruntime/event/eventloop.h |  2 +
+ include/miniruntime/event/handle.h    | 14 +++++-
+ src/CMakeLists.txt                    |  4 +-
+ src/event/eventloop.cpp               | 71 +++++++++++++++++++++++++--
+ src/event/handle.cpp                  | 16 +++++-
+ tests/event/eventlooptest.cpp         | 47 ++++++++++++++++++
+ 6 files changed, 146 insertions(+), 8 deletions(-)
+
+diff --git a/include/miniruntime/event/eventloop.h b/include/miniruntime/event/eventloop.h
+index 1324892..72dd7b9 100644
+--- a/include/miniruntime/event/eventloop.h
++++ b/include/miniruntime/event/eventloop.h
+@@ -107,6 +107,8 @@ private:
+ 
+     /// Remove an fd from epoll and the registry.
+     void unregisterEvent(int fd);
++    /// Replace the epoll mask for a registered fd.
++    void updateEvent(int fd, uint32_t epollFlags);
+     /// Re-arm an interval timer with a new period.
+     void resetTimerInterval(int fd, std::chrono::milliseconds interval);
+ 
+diff --git a/include/miniruntime/event/handle.h b/include/miniruntime/event/handle.h
+index 3d320d5..8d03031 100644
+--- a/include/miniruntime/event/handle.h
++++ b/include/miniruntime/event/handle.h
+@@ -2,6 +2,7 @@
+ 
+ #include <atomic>
+ #include <chrono>
++#include <cstdint>
+ #include <memory>
+ 
+ namespace miniruntime::event
+@@ -55,6 +56,17 @@ class EventHandle : public HandleBase
+ {
+     friend class EventLoop;
+ 
++public:
++    /**
++     * @brief Changes the epoll mask for the registered raw fd.
++     * @param epollFlags New epoll event mask.
++     * @throws std::runtime_error if the registration cannot be changed.
++     *
++     * The operation is safe to call from a thread other than the event-loop
++     * thread. The raw fd remains owned by the caller.
++     */
++    void updateEvents(uint32_t epollFlags);
++
+ private:
+     // Only EventLoop is allowed to construct it.
+     EventHandle(EventLoop* loop, int fd);
+@@ -137,4 +149,4 @@ private:
+     IntervalHandle(EventLoop* loop, int fd);
+ };
+ 
+-} // namespace miniruntime::event
+\ No newline at end of file
++} // namespace miniruntime::event
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 5ba49f3..0eea1fe 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -9,7 +9,7 @@ add_library(${LIB_NAME} STATIC
+ )
+ 
+ target_include_directories(${LIB_NAME} PUBLIC
+-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
++    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+     $<INSTALL_INTERFACE:include>
+ )
+ 
+@@ -30,7 +30,7 @@ install(
+ )
+ 
+ install(
+-    DIRECTORY ${CMAKE_SOURCE_DIR}/include/miniruntime
++    DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../include/miniruntime
+     DESTINATION include
+ )
+ 
+diff --git a/src/event/eventloop.cpp b/src/event/eventloop.cpp
+index c7c3c1e..99b374a 100644
+--- a/src/event/eventloop.cpp
++++ b/src/event/eventloop.cpp
+@@ -14,6 +14,7 @@
+ #include <sys/time.h>
+ #include <sys/timerfd.h>
+ #include <sys/types.h>
++#include <unordered_map>
+ #include <unistd.h>
+ 
+ namespace
+@@ -21,9 +22,9 @@ namespace
+ 
+ void readFd(int fd)
+ {
+-    uint64_t val;
++    uint64_t val{};
+     const ssize_t n = read(fd, &val, sizeof(val));
+-    if (n != static_cast<ssize_t>(n))
++    if (n != static_cast<ssize_t>(sizeof(val)))
+         LOG_WARNING("EventLoop read failed on fd={}: {}; this can lead to uncontrolled "
+                     "EventLoop awakenings.",
+                     fd,
+@@ -50,6 +51,7 @@ struct Event {
+ // Pimpl implementation of EventLoop.
+ struct EventLoop::Impl {
+     int epollFd{-1};
++    int wakeFd{-1};
+     std::atomic<bool> stop{false};
+     std::mutex mutex;
+     std::unordered_map<int, Event> events;
+@@ -100,6 +102,26 @@ EventLoop::EventLoop() : m_impl(std::make_unique<Impl>())
+         LOG_ERROR("Can not create epoll");
+         throw std::runtime_error("Can not create epoll");
+     }
++
++    m_impl->wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
++    if (m_impl->wakeFd < 0) {
++        close(m_impl->epollFd);
++        m_impl->epollFd = -1;
++        LOG_ERROR("Can not create EventLoop wakeup fd");
++        throw std::runtime_error("Can not create EventLoop wakeup fd");
++    }
++
++    struct epoll_event event{};
++    event.data.fd = m_impl->wakeFd;
++    event.events = EPOLLIN;
++    if (epoll_ctl(m_impl->epollFd, EPOLL_CTL_ADD, m_impl->wakeFd, &event) == -1) {
++        close(m_impl->wakeFd);
++        close(m_impl->epollFd);
++        m_impl->wakeFd = -1;
++        m_impl->epollFd = -1;
++        LOG_ERROR("Can not register EventLoop wakeup fd: {}", std::strerror(errno));
++        throw std::runtime_error("Can not register EventLoop wakeup fd");
++    }
+ }
+ 
+ EventLoop::~EventLoop()
+@@ -113,6 +135,16 @@ EventLoop::~EventLoop()
+                         std::strerror(errno));
+         }
+     }
++    if (m_impl->wakeFd >= 0) {
++        if (epoll_ctl(m_impl->epollFd, EPOLL_CTL_DEL, m_impl->wakeFd, nullptr) == -1 &&
++            errno != ENOENT) {
++            LOG_WARNING("EventLoop::~EventLoop epoll_ctl DEL failed for wakeup fd={}: {}",
++                        m_impl->wakeFd,
++                        std::strerror(errno));
++        }
++        close(m_impl->wakeFd);
++        m_impl->wakeFd = -1;
++    }
+     if (m_impl->epollFd >= 0) {
+         close(m_impl->epollFd);
+         m_impl->epollFd = -1;
+@@ -232,6 +264,11 @@ void EventLoop::run()
+ 
+         for (int i = 0; i < n; ++i) {
+             const auto fd = events[i].data.fd;
++            if (fd == m_impl->wakeFd) {
++                readFd(fd);
++                continue;
++            }
++
+             EventCallback cb;
+             {
+                 // Copy the callback under the lock, invoke it outside it,
+@@ -251,7 +288,15 @@ void EventLoop::run()
+ void EventLoop::stop()
+ {
+     LOG_DEBUG("EventLoop::stop called");
+-    m_impl->stop.store(true, std::memory_order_release);
++    if (m_impl->stop.exchange(true, std::memory_order_acq_rel)) return;
++
++    const uint64_t one = 1;
++    const ssize_t written = write(m_impl->wakeFd, &one, sizeof(one));
++    if (written != static_cast<ssize_t>(sizeof(one))) {
++        LOG_WARNING("EventLoop::stop wakeup failed on fd={}: {}",
++                    m_impl->wakeFd,
++                    std::strerror(errno));
++    }
+ }
+ 
+ // Delegating wrapper for HandleBase and the handle classes.
+@@ -269,6 +314,26 @@ void EventLoop::unregisterEvent(int fd)
+     m_impl->events.erase(fd);
+ }
+ 
++void EventLoop::updateEvent(int fd, uint32_t epollFlags)
++{
++    LOG_DEBUG("EventLoop::updateEvent: fd={}, flags={:#x}", fd, epollFlags);
++
++    std::lock_guard lock(m_impl->mutex);
++    const auto it = m_impl->events.find(fd);
++    if (it == m_impl->events.end()) {
++        throw std::runtime_error("event is not registered");
++    }
++
++    struct epoll_event event{};
++    event.data.fd = fd;
++    event.events = epollFlags;
++    if (epoll_ctl(m_impl->epollFd, EPOLL_CTL_MOD, fd, &event) == -1) {
++        LOG_ERROR("epoll_ctl mod failed, fd={}: {}", fd, std::strerror(errno));
++        throw std::runtime_error("epoll_ctl mod failed");
++    }
++    it->second.epollFlags = epollFlags;
++}
++
+ // Delegating wrapper for IntervalHandle::resetInterval.
+ void EventLoop::resetTimerInterval(int fd, std::chrono::milliseconds interval)
+ {
+diff --git a/src/event/handle.cpp b/src/event/handle.cpp
+index 6f01c9b..75100e4 100644
+--- a/src/event/handle.cpp
++++ b/src/event/handle.cpp
+@@ -58,6 +58,15 @@ void HandleBase::release()
+ // EventHandle never owns the fd: the caller keeps ownership.
+ EventHandle::EventHandle(EventLoop* loop, int fd) : HandleBase(loop, fd, false) {}
+ 
++void EventHandle::updateEvents(uint32_t epollFlags)
++{
++    if (!valid()) {
++        LOG_WARNING("EventHandle::updateEvents on invalid handle");
++        return;
++    }
++    m_impl->loop->updateEvent(m_impl->fd, epollFlags);
++}
++
+ // TriggerHandle owns its eventfd.
+ TriggerHandle::TriggerHandle(EventLoop* loop, int fd) : HandleBase(loop, fd, true) {}
+ 
+@@ -95,7 +104,10 @@ void TimerHandle::cancel()
+     release();
+ }
+ 
+-bool TimerHandle::fired() const { return m_impl->fired->load(std::memory_order_acquire); }
++bool TimerHandle::fired() const
++{
++    return m_impl && m_impl->fired && m_impl->fired->load(std::memory_order_acquire);
++}
+ 
+ std::shared_ptr<std::atomic<bool>> TimerHandle::firedAccess() { return m_impl->fired; }
+ 
+@@ -122,4 +134,4 @@ void IntervalHandle::resetInterval(std::chrono::milliseconds interval)
+     // Re-arm the timerfd with the new period on the loop.
+     m_impl->loop->resetTimerInterval(m_impl->fd, interval);
+ }
+-} // namespace miniruntime::event
+\ No newline at end of file
++} // namespace miniruntime::event
+diff --git a/tests/event/eventlooptest.cpp b/tests/event/eventlooptest.cpp
+index 43fa409..074d21b 100644
+--- a/tests/event/eventlooptest.cpp
++++ b/tests/event/eventlooptest.cpp
+@@ -165,6 +165,52 @@ TEST(EventLoopTest, RawFdEvent)
+     close(fds[1]);
+ }
+ 
++TEST(EventLoopTest, RawFdEventMaskCanBeUpdated)
++{
++    EventLoop loop;
++    std::atomic<int> callbacks{0};
++
++    int fds[2];
++    ASSERT_EQ(pipe(fds), 0);
++
++    EventHandle event = loop.createEvent(
++        fds[0], EPOLLOUT, EventType::SOCKET, [&callbacks, readFd = fds[0]](int) {
++            char value{};
++            if (read(readFd, &value, sizeof(value)) == 1) callbacks.fetch_add(1);
++        });
++    LoopRunner runner(loop, 1s);
++
++    ASSERT_EQ(write(fds[1], "x", 1), 1);
++    std::this_thread::sleep_for(50ms);
++    EXPECT_EQ(callbacks.load(), 0);
++
++    event.updateEvents(EPOLLIN);
++    EXPECT_TRUE(runner.waitFor([&callbacks] { return callbacks.load() == 1; }));
++
++    close(fds[0]);
++    close(fds[1]);
++}
++
++TEST(EventLoopTest, StopWakesBlockedRun)
++{
++    EventLoop loop;
++    std::atomic<bool> started{false};
++    std::thread thread([&loop, &started] {
++        started.store(true, std::memory_order_release);
++        loop.run();
++    });
++
++    while (!started.load(std::memory_order_acquire)) std::this_thread::yield();
++    std::this_thread::sleep_for(20ms);
++
++    const auto stopStarted = std::chrono::steady_clock::now();
++    loop.stop();
++    thread.join();
++    const auto stopDuration = std::chrono::steady_clock::now() - stopStarted;
++
++    EXPECT_LT(stopDuration, 50ms);
++}
++
+ TEST(EventLoopTest, MovedTriggerInvalidatesSource)
+ {
+     EventLoop loop;
+@@ -198,6 +244,7 @@ TEST(EventLoopTest, MovedTimerInvalidatesSource)
+ 
+     // Cancel a moved-from timer must be a no-op.
+     timer.cancel();
++    EXPECT_FALSE(timer.fired());
+ 
+     LoopRunner runner(loop, 1s);
+     EXPECT_TRUE(runner.waitFor([&fired] { return fired.load() == 1; }));
+-- 
+2.55.0
+
