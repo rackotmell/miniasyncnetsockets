@@ -1,9 +1,9 @@
 # miniasyncnetsockets API
 
-Статус документа: целевой публичный API серверной версии `v0.1`.
+Статус документа: публичный API серверной версии `v0.1` и клиентской версии `v0.2`.
 
-Документ фиксирует контракт, который должен быть реализован после создания
-корневой библиотеки. API клиента описан отдельно как планируемая версия `v0.2`.
+Документ фиксирует контракт корневой библиотеки. Серверный API реализован в `v0.1`,
+клиентский API реализован в `v0.2`.
 
 ## Область API
 
@@ -16,12 +16,13 @@
 
 ## Публичные заголовки
 
-Планируемая структура заголовков:
+Структура публичных заголовков:
 
 ```text
 include/miniasyncnetsockets/errors.hpp
 include/miniasyncnetsockets/tcpconnection.hpp
 include/miniasyncnetsockets/tcpserver.hpp
+include/miniasyncnetsockets/tcpclient.hpp
 include/miniasyncnetsockets/miniasyncnetsockets.hpp
 ```
 
@@ -245,7 +246,7 @@ trigger.
 
 ## Client API, версия v0.2
 
-Клиент реализуется после серверного vertical slice. Планируемая форма:
+Клиент использует тот же framed protocol, codec и write queue, что и сервер:
 
 ```cpp
 struct ClientOptions
@@ -281,6 +282,11 @@ public:
 };
 ```
 
-Клиент также владеет собственным `EventLoop` и event-loop thread. Подключение
-начинается через `PendingTcpStream`, а framing parser и write queue переиспользуют
-серверную реализацию после стабилизации внутренних компонентов.
+`start()` создает `PendingTcpStream`, регистрирует fd на `EPOLLOUT`, завершает
+подключение через `finishConnect()` и запускает connect timeout. После успешного
+подключения вызывается `onConnected` в event-loop thread. Ошибка подключения или
+ошибка callback передается через `onError`, после чего клиент закрывается.
+
+Клиент владеет собственным `EventLoop` и event-loop thread. `sendFrame()` и
+callback-и клиента выполняются в event-loop thread; `stop()` можно вызвать из
+любого потока. Безопасная cross-thread отправка в первой реализации не поддерживается.

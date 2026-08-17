@@ -26,3 +26,7 @@ gtest_discover_tests(writequeuetest)
 add_executable(tcpservertest tcpservertest.cpp)
 target_link_libraries(tcpservertest PRIVATE miniasyncnetsockets GTest::gtest_main)
 gtest_discover_tests(tcpservertest)
+
+add_executable(tcpclienttest tcpclienttest.cpp)
+target_link_libraries(tcpclienttest PRIVATE miniasyncnetsockets GTest::gtest_main)
+gtest_discover_tests(tcpclienttest)
