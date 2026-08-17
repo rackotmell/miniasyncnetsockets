@@ -2,6 +2,7 @@
 /// @brief Unit tests for detail::WriteQueue.
 
 #include "detail/writequeue.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
 #include <gtest/gtest.h>
 

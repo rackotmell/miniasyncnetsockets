@@ -2,6 +2,7 @@
 /// @brief Implementation of the per-connection event handler.
 
 #include "connectionstate.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
 #include <array>
 #include <stdexcept>

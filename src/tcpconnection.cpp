@@ -2,8 +2,8 @@
 /// @brief TcpConnection pimpl delegation.
 
 #include "miniasyncnetsockets/tcpconnection.hpp"
-
 #include "detail/connectionstate.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
 #include <utility>
 

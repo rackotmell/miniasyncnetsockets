@@ -2,6 +2,7 @@
 /// @brief TcpClient pimpl delegation.
 
 #include "miniasyncnetsockets/tcpclient.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
 #include "detail/clientstate.hpp"
 

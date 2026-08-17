@@ -50,7 +50,8 @@ mininetsockets::IoResult WriteQueue::writeNonBlocking(const WriteFunction& write
     while (!empty()) {
         const auto data = pendingData();
         const auto result = writer(data);
-        if (result.bytes > data.size()) throw InvalidState("writer returned too many bytes");
+        if (result.bytes > data.size())
+            throw InvalidState("writer returned too many bytes");
 
         consume(result.bytes);
         written += result.bytes;
@@ -80,7 +81,8 @@ void WriteQueue::consume(std::size_t bytes)
     if (bytes == 0) return;
 
     const auto data = pendingData();
-    if (bytes > data.size()) throw InvalidState("write queue offset exceeds current buffer");
+    if (bytes > data.size())
+        throw InvalidState("write queue offset exceeds current buffer");
 
     m_frontOffset += bytes;
     m_pendingBytes -= bytes;

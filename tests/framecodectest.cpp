@@ -2,6 +2,7 @@
 /// @brief Unit tests for detail::FrameCodec.
 
 #include "detail/framecodec.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
 #include <gtest/gtest.h>
 

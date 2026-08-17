@@ -2,6 +2,7 @@
 /// @brief Implementation of the client event-loop thread and connect lifecycle.
 
 #include "clientstate.hpp"
+#include "miniasyncnetsockets/errors.hpp"
 
 #include <array>
 #include <stdexcept>

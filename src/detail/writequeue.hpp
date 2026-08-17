@@ -1,5 +1,6 @@
 /// @file writequeue.hpp
-/// @brief Internal write buffer that serializes frames and drains via non-blocking writes.
+/// @brief Internal write buffer that serializes frames and drains via non-blocking
+/// writes.
 
 #pragma once
 
@@ -47,7 +48,7 @@ private:
     const std::size_t m_maxPendingWriteBytes;
     std::deque<std::vector<std::byte>> m_buffers; ///< Serialized frame buffers.
     std::size_t m_frontOffset{0};                 ///< Read offset into the front buffer.
-    std::size_t m_pendingBytes{0};                ///< Total bytes queued across all buffers.
+    std::size_t m_pendingBytes{0};                ///< Total bytes queued.
 };
 
 } // namespace miniasyncnetsockets::detail

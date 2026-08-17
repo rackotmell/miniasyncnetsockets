@@ -7,17 +7,14 @@
 #include <cstddef>
 #include <functional>
 #include <span>
-#include <vector>
 
-#include "miniasyncnetsockets/errors.hpp"
 #include "miniasyncnetsockets/tcpconnection.hpp"
 
 namespace miniasyncnetsockets::detail
 {
 
 // State of the frame decoder.
-enum class FrameCodecState
-{
+enum class FrameCodecState {
     ReadingHeader,  ///< Accumulating the 4-byte frame header.
     ReadingPayload, ///< Reading the payload body.
     Closed          ///< Codec is closed and no longer usable.
@@ -51,15 +48,25 @@ private:
     // Decodes the 4-byte big-endian header into a payload size.
     [[nodiscard]] std::size_t decodePayloadSize() const noexcept;
 
+    // Accumulates header bytes. Returns true when header is complete.
+    bool consumeHeader(std::span<const std::byte> input, std::size_t& offset,
+        const FrameCallback& onFrame);
+
+    // Accumulates payload bytes. Returns true when a frame is dispatched.
+    bool consumePayload(std::span<const std::byte> input, std::size_t& offset,
+        const FrameCallback& onFrame);
+
     // Throws InvalidState when the codec is already closed.
     [[noreturn]] void throwClosed() const;
 
-    const std::size_t m_maxFrameSize;
     FrameCodecState m_state{FrameCodecState::ReadingHeader};
-    std::array<std::byte, headerSize> m_header{}; ///< Partial header accumulator.
-    std::size_t m_headerBytes{0};                 ///< Bytes accumulated in m_header.
-    Frame m_payload;                              ///< Partial payload accumulator.
-    std::size_t m_payloadBytes{0};                ///< Bytes accumulated in m_payload.
+
+    const std::size_t m_maxFrameSize;
+    std::array<std::byte, headerSize> m_header{};
+    Frame m_payload;
+
+    std::size_t m_headerBytes{0};
+    std::size_t m_payloadBytes{0};
 };
 
 } // namespace miniasyncnetsockets::detail
