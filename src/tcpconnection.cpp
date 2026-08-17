@@ -2,9 +2,6 @@
 
 #include "detail/connectionstate.hpp"
 
-#include <array>
-#include <exception>
-#include <stdexcept>
 #include <utility>
 
 namespace miniasyncnetsockets

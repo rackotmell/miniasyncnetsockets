@@ -51,6 +51,8 @@ add_library(miniasyncnetsockets STATIC
     src/detail/writequeue.cpp
     src/detail/connectionstate.cpp
     src/tcpconnection.cpp
+    src/detail/serverstate.cpp
+    src/tcpserver.cpp
 )
 target_compile_features(miniasyncnetsockets PUBLIC cxx_std_20)
 target_compile_options(miniasyncnetsockets PRIVATE -Wall -Wextra -Wpedantic -Werror)

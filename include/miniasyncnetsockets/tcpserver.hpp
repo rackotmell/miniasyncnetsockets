@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <sys/socket.h>
 
 #include "miniasyncnetsockets/tcpconnection.hpp"
@@ -9,6 +10,11 @@
 
 namespace miniasyncnetsockets
 {
+
+namespace detail
+{
+class ServerState;
+}
 
 struct ServerOptions
 {
@@ -44,6 +50,9 @@ public:
 
     [[nodiscard]] bool isRunning() const noexcept;
     [[nodiscard]] mininetsockets::Endpoint localEndpoint() const;
+
+private:
+    std::unique_ptr<detail::ServerState> m_state;
 };
 
 } // namespace miniasyncnetsockets
