@@ -1,3 +1,17 @@
 add_executable(miniasyncnetsockets_header_test headercompilationtest.cpp)
 target_link_libraries(miniasyncnetsockets_header_test PRIVATE miniasyncnetsockets)
 add_test(NAME miniasyncnetsockets_header_test COMMAND miniasyncnetsockets_header_test)
+
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.17.0
+)
+FetchContent_MakeAvailable(googletest)
+
+include(GoogleTest)
+add_executable(framecodectest framecodectest.cpp)
+target_include_directories(framecodectest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_link_libraries(framecodectest PRIVATE miniasyncnetsockets GTest::gtest_main)
+gtest_discover_tests(framecodectest)
